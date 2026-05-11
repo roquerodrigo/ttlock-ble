@@ -510,7 +510,7 @@ class TTLockClient:
         except (ValueError, RuntimeError) as exc:
             log.warning("Could not decode push event (%s): %s", exc, frame.data.hex())
             return
-        event = LockEvent(cmd_echo=echo, status=status, data=data)
+        event = LockEvent.from_payload(echo, status, data)
         for listener in list(self._event_listeners):
             try:
                 listener(event)

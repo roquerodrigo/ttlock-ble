@@ -122,3 +122,46 @@ class TestPushDispatch:
         )
         client._dispatch_event(bad)
         assert events == []
+
+
+class TestLockEventDecoding:
+    """`LockEvent.from_payload` parses the cmd_echo=0x14 push variants."""
+
+    def test_short_state_push_extracts_battery_and_state(self):
+        event = LockEvent.from_payload(0x14, 1, bytes.fromhex("2c0102"))
+        assert event.battery == 0x2C
+        assert event.lock_state == 1
+        assert event.uid is None
+        assert event.record_id is None
+        assert event.timestamp is None
+
+    def test_long_log_push_extracts_uid_record_id_timestamp(self):
+        # 15-byte payload captured live: 2c=battery, then uid(4)+record_id(4)+date(6).
+        payload = bytes.fromhex("2c000000006a0224a31a050b0f3008")
+        event = LockEvent.from_payload(0x14, 1, payload)
+        assert event.battery == 0x2C
+        assert event.uid == 0
+        assert event.record_id == 0x6A0224A3
+        assert event.timestamp == "2026-05-11 15:48:08"
+        assert event.lock_state is None
+
+    def test_unknown_cmd_echo_leaves_decoded_fields_none(self):
+        event = LockEvent.from_payload(0x47, 1, bytes.fromhex("2a0000"))
+        assert event.cmd_echo == 0x47
+        assert event.battery is None
+        assert event.lock_state is None
+        assert event.record_id is None
+        assert event.timestamp is None
+        assert event.data == bytes.fromhex("2a0000")
+
+    def test_state_push_with_unrecognised_state_byte(self):
+        event = LockEvent.from_payload(0x14, 1, bytes.fromhex("2c0502"))
+        assert event.battery == 0x2C
+        assert event.lock_state is None  # 5 isn't a valid lock state
+
+    def test_log_push_with_invalid_date_returns_none_timestamp(self):
+        # 0x99 as month (153) is out of range — must NOT parse as a valid date.
+        payload = bytes.fromhex("2c000000006a0224a31a99010f3008")
+        event = LockEvent.from_payload(0x14, 1, payload)
+        assert event.uid == 0
+        assert event.timestamp is None
