@@ -9,6 +9,7 @@ client in `asyncio.run()`.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -74,7 +75,19 @@ class TTLockCloud:
         self.country_id: int = 0
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=timeout)
-        self._uniqueid = load_uniqueid()
+        self._uniqueid: str | None = None
+
+    async def _async_uniqueid(self) -> str:
+        """Return the cached install id, loading it from disk on first use.
+
+        `load_uniqueid` reads (and may create) `~/.ttlock/uniqueid`. Doing
+        that from the constructor blocks the event loop the first time an
+        async consumer (Home Assistant, FastAPI) instantiates the client,
+        so the load is deferred to first use and run via `asyncio.to_thread`.
+        """
+        if self._uniqueid is None:
+            self._uniqueid = await asyncio.to_thread(load_uniqueid)
+        return self._uniqueid
 
     async def __aenter__(self) -> Self:
         """Enter `async with TTLockCloud() as c:` — returns self unchanged."""
@@ -98,11 +111,12 @@ class TTLockCloud:
         site_id: int | None = None,
     ) -> CloudCredentials:
         """POST `/user/login` and cache the resulting access token."""
+        uniqueid = await self._async_uniqueid()
         params = {
             "username": username,
             "password": md5_hex(password),
             "platId": "1",
-            "uniqueid": self._uniqueid,
+            "uniqueid": uniqueid,
             "packageName": self.package_name,
             "countryId": str(country_id if country_id is not None else self.country_id),
             "siteId": str(site_id if site_id is not None else self.site_id),
@@ -133,9 +147,10 @@ class TTLockCloud:
         Mirrors `VerificationCodeUtil.sendValidationCode(false, account, 4, 0, 1, …)`
         invoked by `TerifyLoginActivity` in the Android app.
         """
+        uniqueid = await self._async_uniqueid()
         params = {
             "account": account,
-            "uniqueid": self._uniqueid,
+            "uniqueid": uniqueid,
             "codeType": str(CODE_TYPE_NEW_DEVICE_LOGIN),
             "xWidth": "0",
             "channel": str(channel),
@@ -148,9 +163,10 @@ class TTLockCloud:
         self, account: str, verification_code: str
     ) -> Mapping[str, object]:
         """Submit the emailed/SMS code, registering this `uniqueid` with the server."""
+        uniqueid = await self._async_uniqueid()
         params = {
             "userid": account,
-            "uniqueid": self._uniqueid,
+            "uniqueid": uniqueid,
             "verificationCode": verification_code,
             "platId": "1",
             "countryId": str(self.country_id),
@@ -160,7 +176,8 @@ class TTLockCloud:
 
     async def discover_site(self) -> Mapping[str, object]:
         """Resolve the regional API base URL + site/country for our public IP."""
-        body = await self._post("/system/getCountryAndSiteInfo", {"uniqueid": self._uniqueid})
+        uniqueid = await self._async_uniqueid()
+        body = await self._post("/system/getCountryAndSiteInfo", {"uniqueid": uniqueid})
         api = body.get("apiDomainName")
         if api:
             self.base_url = str(api).rstrip("/")
@@ -187,6 +204,7 @@ class TTLockCloud:
                 "packageName": self.package_name,
             }
         )
+        uniqueid = await self._async_uniqueid()
         while True:
             body = await self._post(
                 "/check/syncDataPage",
@@ -194,7 +212,7 @@ class TTLockCloud:
                     "lastUpdateDate": "0",
                     "pageNo": str(page_no),
                     "userInfo": user_info,
-                    "uniqueid": self._uniqueid,
+                    "uniqueid": uniqueid,
                 },
             )
             raw_page = body.get("keyInfos") or body.get("keyList") or []
@@ -220,6 +238,7 @@ class TTLockCloud:
         *,
         version: str | None = None,
     ) -> dict[str, object]:
+        uniqueid = await self._async_uniqueid()
         params_full = {k: v for k, v in params.items() if v is not None}
         params_full.setdefault("date", str(int(time.time() * 1000)))
         params_full.setdefault("d", str(int(time.time() * 1000)))
@@ -233,7 +252,7 @@ class TTLockCloud:
             "language": self.language,
             "packageName": self.package_name,
             "date": params_full["date"],
-            "uniqueid": self._uniqueid,
+            "uniqueid": uniqueid,
             "signature": signature,
             "refer": "0",
             "User-Agent": "Mozilla/5.0 (Linux; Android 14; ttlock-ble) AppleWebKit/537.36",
