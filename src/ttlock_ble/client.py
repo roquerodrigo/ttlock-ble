@@ -452,7 +452,11 @@ class TTLockClient:
         self._waiting_for_response += 1
         try:
             await self._send(frame)
-            return await self._recv(timeout=timeout)
+            try:
+                return await self._recv(timeout=timeout)
+            except TimeoutError as exc:
+                msg = f"Timed out waiting {timeout:.1f}s for the lock to reply"
+                raise TTLockError(msg) from exc
         finally:
             self._waiting_for_response -= 1
 
