@@ -1,0 +1,61 @@
+# The contents of this file is based on https://github.com/home-assistant/core/blob/dev/pyproject.toml
+
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = [
+    "ALL",
+]
+
+ignore = [
+    "ANN401", # typing.Any disallowed — not always avoidable at framework boundaries
+    "D203",   # no-blank-line-before-class (incompatible with formatter)
+    "D212",   # multi-line-summary-first-line (incompatible with formatter)
+    "D213",   # mutually exclusive with D212; we pick D212-style summaries
+    "D107",   # __init__ docstring covered by class docstring
+    "COM812", # incompatible with formatter
+    "ISC001", # incompatible with formatter
+    "EM101",  # raise(str) is fine — format helps grep, no string variable needed
+    "EM102",  # same for f-strings inside raise
+    "TRY003", # long exception messages are OK when the message carries diagnostics
+    "TID252", # relative imports between same-package siblings are intentional
+    "PLR2004", # magic byte values are the protocol — extracting them all hurts readability
+    "PLC0415", # lazy imports break a couple of circular deps; intentional
+    "FBT003",  # boolean positional in typer.Option calls is the framework idiom
+    "S101",    # we keep asserts as type-narrowing aids for mypy; cheap in CPython
+]
+
+[lint.per-file-ignores]
+"tests/**" = [
+    "S101",     # asserts are the point of tests
+    "S105",     # tests carry expected passcode/secret values inline
+    "SLF001",   # tests intentionally exercise private members
+    "ARG001",   # unused fixtures are normal
+    "PLR2004",  # magic numbers in tests are fine
+    "D",        # docstrings not required in tests
+    "ANN",      # type annotations not required in tests
+    "ERA001",   # protocol-byte-layout comments are valuable in payload tests
+    "PT011",    # pytest.raises bare ValueError is fine when message isn't tested
+    "PT018",    # composite assertion is normal in tests
+    "PLC0415",  # local imports inside test methods are normal
+    "PYI034",   # Self return type isn't relevant in test fixtures
+]
+"src/ttlock_ble/cli.py" = [
+    "D",        # typer commands self-document via help=
+    "BLE001",   # CLI handlers convert any error into typer.Exit
+    "FBT001",   # boolean-positional in typer commands is the framework idiom
+    "FBT002",
+]
+"src/ttlock_ble/models/*.py" = [
+    "N815",     # cloud-facing dataclass fields keep upstream camelCase
+]
+
+[lint.flake8-pytest-style]
+fixture-parentheses = false
+
+[lint.pyupgrade]
+keep-runtime-typing = true
+
+[lint.mccabe]
+max-complexity = 25
