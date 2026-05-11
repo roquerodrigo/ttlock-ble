@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from typing import TYPE_CHECKING, Self
 
 from bleak import BleakClient, BleakScanner
@@ -50,6 +51,8 @@ _DEFAULT_RECV_TIMEOUT = 6.0
 _CONNECT_RETRIES = 3
 _CONNECT_RETRY_DELAY = 1.0
 _POST_NOTIFY_SETTLE = 0.5
+_DEFAULT_KEEP_ALIVE_SECONDS = 25.0
+_KEEP_ALIVE_INTERVAL = 2.0
 
 
 class TTLockClient:
@@ -72,12 +75,19 @@ class TTLockClient:
         device: BLEDevice | None = None,
         scan_timeout: float = 25.0,
         disconnected_callback: DisconnectedCallback | None = None,
+        keep_alive_after_command: float = _DEFAULT_KEEP_ALIVE_SECONDS,
     ) -> None:
         """Configure the client; no BLE I/O happens until `connect()`.
 
         If `device` is provided (e.g. handed in by Home Assistant's bluetooth
         integration after discovery), `connect()` skips the active scan.
         Otherwise the client scans for `key.lockMac` itself.
+
+        `keep_alive_after_command` (seconds, default 25) keeps the BLE link
+        active that long after every `lock()` / `unlock()` so push events
+        from the lock (auto-lock fired, keypad / fingerprint operations)
+        keep flowing to `add_event_listener` callbacks in real time. Set
+        to 0 to disable.
         """
         self.key = key
         self.scan_timeout = scan_timeout
@@ -91,6 +101,9 @@ class TTLockClient:
         self._inbox: asyncio.Queue[Frame] = asyncio.Queue()
         self._waiting_for_response = 0
         self._event_listeners: list[EventListener] = []
+        self._command_lock = asyncio.Lock()
+        self._keep_alive_seconds = keep_alive_after_command
+        self._keep_alive_task: asyncio.Task[None] | None = None
 
     @classmethod
     def from_ble_device(
@@ -99,14 +112,22 @@ class TTLockClient:
         key: VirtualKey,
         *,
         disconnected_callback: DisconnectedCallback | None = None,
+        keep_alive_after_command: float = _DEFAULT_KEEP_ALIVE_SECONDS,
     ) -> TTLockClient:
         """Build a client around a `BLEDevice` already resolved by the caller.
 
         This is the entry point Home Assistant integrations use: HA's
         bluetooth manager owns discovery and hands a `BLEDevice` to each
         integration on demand, so the integration must NOT scan itself.
+
+        See `__init__` for the `keep_alive_after_command` semantics.
         """
-        return cls(key, device=device, disconnected_callback=disconnected_callback)
+        return cls(
+            key,
+            device=device,
+            disconnected_callback=disconnected_callback,
+            keep_alive_after_command=keep_alive_after_command,
+        )
 
     @property
     def is_connected(self) -> bool:
@@ -163,6 +184,7 @@ class TTLockClient:
 
     async def disconnect(self) -> None:
         """Stop notifications and tear down the BLE connection."""
+        await self._stop_keep_alive()
         if self._client is not None and self._client.is_connected:
             try:
                 if self._notify_char is not None:
@@ -173,14 +195,22 @@ class TTLockClient:
         self._client = None
 
     async def unlock(self) -> None:
-        """Unlock the door (status=SUCCESS or raises)."""
-        ps = await self._check_user_time()
-        await self._control_lock(cmd.CMD_UNLOCK, ps, "unlock")
+        """Unlock the door (status=SUCCESS or raises).
+
+        Starts the keep-alive window so push events from the lock flow to
+        registered listeners for `keep_alive_after_command` seconds.
+        """
+        async with self._command_lock:
+            ps = await self._check_user_time()
+            await self._control_lock(cmd.CMD_UNLOCK, ps, "unlock")
+        self._restart_keep_alive()
 
     async def lock(self) -> None:
-        """Re-lock the door."""
-        ps = await self._check_user_time()
-        await self._control_lock(cmd.CMD_LOCK, ps, "lock")
+        """Re-lock the door (keep-alive applies, same as `unlock`)."""
+        async with self._command_lock:
+            ps = await self._check_user_time()
+            await self._control_lock(cmd.CMD_LOCK, ps, "lock")
+        self._restart_keep_alive()
 
     async def calibrate_time(self, when: dt.datetime | None = None) -> None:
         """Push the current wall-clock time to the lock's RTC.
@@ -190,25 +220,26 @@ class TTLockClient:
         timestamps all rely on it being accurate. HA integrations
         typically call this once on connect and then daily.
         """
-        frame = Frame.for_lock(
-            self.key.lockVersion,
-            cmd.CMD_TIME_CALIBRATE,
-            cmd.payload_time_calibrate(when),
-        ).encrypt_data(self._aes_key)
-        resp = await self._exchange(frame)
-        plain = aes_decrypt(resp.data, self._aes_key)
-        echo, status, data = cmd.parse_response_status(plain)
-        log.info(
-            "calibrate_time response: cmd_echo=0x%02x status=%d data=%s",
-            echo,
-            status,
-            data.hex(),
-        )
-        if status != cmd.RESPONSE_SUCCESS:
-            raise TTLockError(
-                f"Failed to calibrate lock time: lock rejected with "
-                f"status={status:#x}, error={data.hex()}"
+        async with self._command_lock:
+            frame = Frame.for_lock(
+                self.key.lockVersion,
+                cmd.CMD_TIME_CALIBRATE,
+                cmd.payload_time_calibrate(when),
+            ).encrypt_data(self._aes_key)
+            resp = await self._exchange(frame)
+            plain = aes_decrypt(resp.data, self._aes_key)
+            echo, status, data = cmd.parse_response_status(plain)
+            log.info(
+                "calibrate_time response: cmd_echo=0x%02x status=%d data=%s",
+                echo,
+                status,
+                data.hex(),
             )
+            if status != cmd.RESPONSE_SUCCESS:
+                raise TTLockError(
+                    f"Failed to calibrate lock time: lock rejected with "
+                    f"status={status:#x}, error={data.hex()}"
+                )
 
     def add_event_listener(self, listener: EventListener) -> None:
         """Register a callback for unsolicited push notifications.
@@ -235,25 +266,28 @@ class TTLockClient:
 
         Doesn't need CHECK_USER_TIME — search-bicycle-status is unauthenticated.
         """
-        frame = Frame.for_lock(
-            self.key.lockVersion,
-            cmd.CMD_QUERY_STATE,
-            cmd.payload_query_state(),
-        ).encrypt_data(self._aes_key)
-        resp = await self._exchange(frame)
-        plain = aes_decrypt(resp.data, self._aes_key)
-        log.debug("state response plaintext: %s", plain.hex())
-        return cmd.parse_lock_status(plain), cmd.parse_state_battery(plain)
+        async with self._command_lock:
+            frame = Frame.for_lock(
+                self.key.lockVersion,
+                cmd.CMD_QUERY_STATE,
+                cmd.payload_query_state(),
+            ).encrypt_data(self._aes_key)
+            resp = await self._exchange(frame)
+            plain = aes_decrypt(resp.data, self._aes_key)
+            log.debug("state response plaintext: %s", plain.hex())
+            return cmd.parse_lock_status(plain), cmd.parse_state_battery(plain)
 
     async def get_auto_lock_time(self) -> int:
         """Read the auto-lock delay in seconds (0 = disabled, -1 = unknown)."""
-        seconds, _battery = await self._auto_lock_exchange(cmd.payload_auto_lock_search())
+        async with self._command_lock:
+            seconds, _battery = await self._auto_lock_exchange(cmd.payload_auto_lock_search())
         log.info("auto-lock delay: %ds", seconds)
         return seconds
 
     async def set_auto_lock_time(self, seconds: int) -> None:
         """Set the auto-lock delay in seconds. `0` disables auto-lock entirely."""
-        await self._auto_lock_exchange(cmd.payload_auto_lock_set(seconds))
+        async with self._command_lock:
+            await self._auto_lock_exchange(cmd.payload_auto_lock_set(seconds))
         log.info("auto-lock delay set to %ds", seconds)
 
     async def add_passcode(
@@ -270,10 +304,11 @@ class TTLockClient:
         (KeyboardPwdType.PERIOD), pass `start_date` / `end_date` as
         `YYMMDDHHmm` strings.
         """
-        await self._keyboard_password_exchange(
-            cmd.payload_passcode_add(int(pwd_type), code, start_date, end_date),
-            "add_passcode",
-        )
+        async with self._command_lock:
+            await self._keyboard_password_exchange(
+                cmd.payload_passcode_add(int(pwd_type), code, start_date, end_date),
+                "add_passcode",
+            )
 
     async def delete_passcode(
         self,
@@ -282,14 +317,19 @@ class TTLockClient:
         pwd_type: KeyboardPwdType = KeyboardPwdType.PERMANENT,
     ) -> None:
         """Remove a single keypad passcode previously installed via `add_passcode`."""
-        await self._keyboard_password_exchange(
-            cmd.payload_passcode_delete(int(pwd_type), code),
-            "delete_passcode",
-        )
+        async with self._command_lock:
+            await self._keyboard_password_exchange(
+                cmd.payload_passcode_delete(int(pwd_type), code),
+                "delete_passcode",
+            )
 
     async def clear_passcodes(self) -> None:
         """Wipe ALL keypad passcodes from the lock. There's no undo."""
-        await self._keyboard_password_exchange(cmd.payload_passcode_clear(), "clear_passcodes")
+        async with self._command_lock:
+            await self._keyboard_password_exchange(
+                cmd.payload_passcode_clear(),
+                "clear_passcodes",
+            )
 
     async def get_operation_log(self, *, max_entries: int | None = None) -> list[LogEntry]:
         """Pull operation-log entries from the lock, newest-first.
@@ -301,35 +341,81 @@ class TTLockClient:
         captured (some firmware revisions ignore our seq hint and just
         keep echoing the most recent entry, in which case we stop).
         """
-        all_entries: list[LogEntry] = []
-        seen: set[int] = set()
-        next_seq = 0xFFFF
-        while True:
-            frame = Frame.for_lock(
-                self.key.lockVersion,
-                cmd.CMD_GET_OPERATE_LOG,
-                cmd.payload_operate_log_request(next_seq),
-            ).encrypt_data(self._aes_key)
-            resp = await self._exchange(frame)
-            plain = aes_decrypt(resp.data, self._aes_key)
-            log.debug("operate_log response plaintext: %s", plain.hex())
-            page, last_seq = cmd.parse_operate_log_response(plain)
-            log.info("Fetched %d log entr(ies), last_sequence=%d", len(page), last_seq)
-            new_entries = [
-                e for e in page if isinstance(e, LogEntry) and e.record_number not in seen
-            ]
-            if not new_entries:
-                break
-            for entry in new_entries:
-                seen.add(entry.record_number)
-            all_entries.extend(new_entries)
-            if max_entries is not None and len(all_entries) >= max_entries:
-                return all_entries[:max_entries]
-            min_seq = min(e.record_number for e in new_entries)
-            if min_seq <= 0:
-                break
-            next_seq = min_seq
-        return all_entries
+        async with self._command_lock:
+            all_entries: list[LogEntry] = []
+            seen: set[int] = set()
+            next_seq = 0xFFFF
+            while True:
+                frame = Frame.for_lock(
+                    self.key.lockVersion,
+                    cmd.CMD_GET_OPERATE_LOG,
+                    cmd.payload_operate_log_request(next_seq),
+                ).encrypt_data(self._aes_key)
+                resp = await self._exchange(frame)
+                plain = aes_decrypt(resp.data, self._aes_key)
+                log.debug("operate_log response plaintext: %s", plain.hex())
+                page, last_seq = cmd.parse_operate_log_response(plain)
+                log.info("Fetched %d log entr(ies), last_sequence=%d", len(page), last_seq)
+                new_entries = [
+                    e for e in page if isinstance(e, LogEntry) and e.record_number not in seen
+                ]
+                if not new_entries:
+                    break
+                for entry in new_entries:
+                    seen.add(entry.record_number)
+                all_entries.extend(new_entries)
+                if max_entries is not None and len(all_entries) >= max_entries:
+                    return all_entries[:max_entries]
+                min_seq = min(e.record_number for e in new_entries)
+                if min_seq <= 0:
+                    break
+                next_seq = min_seq
+            return all_entries
+
+    def _restart_keep_alive(self) -> None:
+        """Schedule a fresh keep-alive window. Cancels any prior one."""
+        if self._keep_alive_seconds <= 0:
+            return
+        if self._keep_alive_task is not None and not self._keep_alive_task.done():
+            self._keep_alive_task.cancel()
+        self._keep_alive_task = asyncio.create_task(
+            self._keep_alive_loop(),
+            name=f"ttlock_ble.keepalive.{self.key.lockMac}",
+        )
+
+    async def _stop_keep_alive(self) -> None:
+        """Cancel the keep-alive task (called from `disconnect()`)."""
+        if self._keep_alive_task is None or self._keep_alive_task.done():
+            return
+        self._keep_alive_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await self._keep_alive_task
+        self._keep_alive_task = None
+
+    async def _keep_alive_loop(self) -> None:
+        """Periodically poke the lock to keep the BLE link alive.
+
+        The lock idles us out within a few seconds of silence. A
+        lightweight `query_state` every `_KEEP_ALIVE_INTERVAL` seconds
+        prevents that drop, so push notifications keep flowing to
+        registered event listeners for the whole window.
+        """
+        deadline = time.monotonic() + self._keep_alive_seconds
+        while time.monotonic() < deadline and self.is_connected:
+            await asyncio.sleep(_KEEP_ALIVE_INTERVAL)
+            if not self.is_connected:
+                return  # type: ignore[unreachable]
+            try:
+                async with self._command_lock:
+                    frame = Frame.for_lock(
+                        self.key.lockVersion,
+                        cmd.CMD_QUERY_STATE,
+                        cmd.payload_query_state(),
+                    ).encrypt_data(self._aes_key)
+                    await self._exchange(frame)
+            except TTLockError as exc:
+                log.debug("keep-alive query failed for %s: %s", self.key.lockMac, exc)
+                return
 
     async def _find_device(self) -> BLEDevice | None:
         """Locate the lock in a way that works on macOS (which hides MACs).
