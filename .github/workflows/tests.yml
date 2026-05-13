@@ -30,4 +30,4 @@ jobs:
         run: uv sync --group dev
 
       - name: Run tests
-        run: uv run pytest
+        run: uv run pytest --cov=src/ttlock_ble --cov-report=term-missing --cov-fail-under=50

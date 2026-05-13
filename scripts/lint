@@ -8,4 +8,4 @@ cd "$(dirname "$0")/.."
 uv run ruff format .
 uv run ruff check . --fix
 uv run mypy src
-uv run pytest
+uv run pytest --cov=src/ttlock_ble --cov-report=term-missing --cov-fail-under=50

@@ -201,9 +201,11 @@ and generate `CHANGELOG.md`:
 - Ruff configuration lives in `.ruff.toml` with `select = ["ALL"]` and a
   short list of justified ignores.
 - Mypy configuration lives in `mypy.ini` (strict).
-- Pytest configuration lives in `pytest.ini`, including a 50 % coverage
-  gate (BLE/HTTP code paths still need mocked tests; raise the gate as
-  coverage grows).
+- Pytest configuration lives in `pytest.ini`. Coverage flags
+  (`--cov=src/ttlock_ble --cov-report=term-missing --cov-fail-under=50`)
+  are not in `addopts` so they don't conflict with the IDE's coverage
+  runner; CI (`tests.yml`) and `scripts/lint` pass them explicitly. Raise
+  the 50 % gate as BLE/HTTP mocked coverage grows.
 - `scripts/lint` runs `ruff format`, `ruff check --fix`, `mypy src` and
   `pytest` in order. CI mirrors this via `.github/workflows/lint.yml`,
   `tests.yml`, `codeql.yml`.
