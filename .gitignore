@@ -2,8 +2,6 @@
 __pycache__/
 *.pyc
 .env
-decompiled/
-DLock-XP_*.xapk
 /tmp/
 *.log
 .DS_Store
@@ -12,3 +10,4 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+/resources/
