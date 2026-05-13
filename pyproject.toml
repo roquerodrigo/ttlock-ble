@@ -19,11 +19,11 @@ classifiers = [
     "Topic :: System :: Hardware",
 ]
 dependencies = [
-    "bleak==0.22.0",
-    "httpx==0.27.0",
-    "cryptography==43.0.0",
-    "python-dotenv==1.0.0",
-    "typer==0.12.0",
+    "bleak==3.0.2",
+    "httpx==0.28.1",
+    "cryptography==48.0.0",
+    "python-dotenv==1.2.2",
+    "typer==0.25.1",
     "bleak-retry-connector==4.6.0",
 ]
 
@@ -47,10 +47,10 @@ packages = ["src/ttlock_ble"]
 
 [dependency-groups]
 dev = [
-    "pytest==9.0.0",
-    "pytest-asyncio==1.0.0",
-    "pytest-cov==7.0.0",
-    "ruff==0.15.0",
-    "mypy==1.18.0",
-    "pre-commit==4.0.0",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.3.0",
+    "pytest-cov==7.1.0",
+    "ruff==0.15.12",
+    "mypy==2.1.0",
+    "pre-commit==4.6.0",
 ]
