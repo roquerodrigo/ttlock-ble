@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.3...v0.1.4) (2026-05-17)
+
+
+### Bug Fixes
+
+* **deps:** relax dependency pins for Home Assistant compatibility ([8105f09](https://github.com/roquerodrigo/ttlock-ble/commit/8105f09f915155c7a00a67174dcfe33d35a2cc1a))
+
 ## [0.1.3](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.2...v0.1.3) (2026-05-17)
 
 
