@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+from .constants.lock_state import LockState
+
 CMD_SEARCH_DEVICE_FEATURE = 0x01
 CMD_INIT_PASSWORDS = 0x31
 CMD_CHECK_RANDOM = 0x30
@@ -36,8 +38,11 @@ VENDOR = "0658d44e0c504619a09c5b91be75a3a8"
 RESPONSE_SUCCESS = 0x01
 RESPONSE_FAILED = 0x00
 
-LOCKED = 0
-UNLOCKED = 1
+# `cmd.LOCKED` / `cmd.UNLOCKED` are kept as aliases of the LockState enum
+# members (existing callers can still write `cmd.LOCKED` and compare with
+# either an int or an enum).
+LOCKED = LockState.LOCKED
+UNLOCKED = LockState.UNLOCKED
 
 
 def _int_to_bytes_be(value: int, n: int = 4) -> bytes:
@@ -192,16 +197,20 @@ def parse_check_user_time_response(plaintext: bytes) -> int:
     return int.from_bytes(data[:4], "big")
 
 
-def parse_lock_status(plaintext: bytes) -> int:
+def parse_lock_status(plaintext: bytes) -> LockState | None:
     """Decode COMM_SEARCH_BICYCLE_STATUS lockState byte.
 
     Wire layout: `[cmd_echo][status][battery][lockState][...]`.
-    Returns 0 (LOCKED), 1 (UNLOCKED), or -1 (UNKNOWN).
+    Returns the matching `LockState` member, or `None` when the lock
+    failed the request or sent a byte the firmware doesn't define.
     """
     _cmd_echo, status, data = parse_response_status(plaintext)
     if status != RESPONSE_SUCCESS or len(data) < 2:
-        return -1
-    return data[1]
+        return None
+    try:
+        return LockState(data[1])
+    except ValueError:
+        return None
 
 
 def parse_state_battery(plaintext: bytes) -> int | None:
@@ -314,8 +323,14 @@ def payload_passcode_clear() -> bytes:
 def payload_operate_log_request(sequence: int = 0xFFFF) -> bytes:
     """COMM_GET_OPERATE_LOG request — sequence number as UInt16 BE.
 
-    `sequence=0xFFFF` (default) asks the lock for "all newer entries you
-    have"; when paginating, pass the largest `record_number` seen + 1.
+    `sequence=0xFFFF` (default) is the "since last sync" sentinel — the
+    lock answers with the next record after its internal cursor. For
+    each subsequent page pass back the `last_sequence` returned by
+    `parse_operate_log_response` verbatim; the lock uses it as the
+    cursor and advances by one record per call (matches
+    `CommandUtil_V3.getOperateLog` in the TTLock Android SDK). Direction
+    is firmware-dependent — observed DLock-XP V3 returns ascending
+    sequences (oldest unread first).
     """
     return sequence.to_bytes(2, "big")
 
@@ -367,7 +382,49 @@ def parse_operate_log_response(plaintext: bytes) -> tuple[list[object], int]:
     return entries, sequence
 
 
-def _decode_log_record(  # noqa: PLR0913, PLR0912  -- record-type dispatch is a flat switch
+def _decode_date5(b: bytes) -> str:
+    """Decode a 5-byte (yy,mm,dd,hh,mm) date to `YYYYMMDDhhmm` lock-local time."""
+    return "20" + "".join(f"{b[i]:02d}" for i in range(5))
+
+
+def _decode_mac6(b: bytes) -> str:
+    """Decode a 6-byte little-endian MAC into the canonical `aa:bb:cc:dd:ee:ff`."""
+    return ":".join(f"{x:02x}" for x in reversed(b))
+
+
+def _decode_pwd_pair(payload: bytes) -> tuple[str | None, str | None, int]:
+    """Decode `(pwd_len, pwd, new_pwd_len, new_pwd)` — returns (pwd, new_pwd, consumed)."""
+    if not payload:
+        return None, None, 0
+    pwd_len = payload[0]
+    if 1 + pwd_len > len(payload):
+        return None, None, 0
+    pwd = payload[1 : 1 + pwd_len].decode("ascii", errors="replace")
+    consumed = 1 + pwd_len
+    if consumed >= len(payload):
+        return pwd, None, consumed
+    new_len = payload[consumed]
+    consumed += 1
+    new_pwd = payload[consumed : consumed + new_len].decode("ascii", errors="replace")
+    return pwd, new_pwd, consumed + new_len
+
+
+# Record-type buckets from `CommandUtil_V3.parseOperateLog` in the TTLock
+# Android SDK. Keeping these as bare ints (rather than `LogOperate.X.value`)
+# keeps the cross-reference to the Java switch statement legible.
+_APP_UID_RID = {1, 26, 28, 41, 52, 75, 76, 77}
+_PWD_PAIR = {4, 5, 6, 9, 10, 11, 12, 13, 34, 38, 78, 92}
+_ERROR_PWD_ONLY = {7}
+_CLEAR_ALL = {8}
+_CARD_LONG = {15, 17, 18, 25, 35, 39, 51, 74, 80, 91}
+_FINGERPRINT_6B = {20, 21, 22, 23, 33, 40, 79}
+_DOOR_SENSOR = {30, 31}
+_SIX_BYTE_ID = {67, 68, 69, 70, 71, 72, 81, 83, 84, 85, 86, 87, 88, 89}
+_SHORT_ID = {57, 58}
+_THIRD_DEVICE_MAC = {94, 95, 96, 97, 98, 99, 100}
+
+
+def _decode_log_record(  # noqa: PLR0913, PLR0912, PLR0915  -- flat switch mirrors the SDK
     record_type: int,
     operate_date: str,
     battery: int,
@@ -378,13 +435,14 @@ def _decode_log_record(  # noqa: PLR0913, PLR0912  -- record-type dispatch is a 
 ) -> object:
     """Build a `LogEntry` from one record body.
 
-    Most variants we see on a DLock-XP V3 carry one of three payloads:
-    `(uid, recordId)` for app/BLE/gateway unlocks, `(passcode_len, chars)`
-    for keypad operations, or a 6-byte fixed accessory id for IC/FR/key fob.
+    Dispatch is a port of the switch in `CommandUtil_V3.parseOperateLog`
+    (TTLock Android SDK). Each case interprets the variable-length tail
+    that follows the fixed header (`record_type` + 6-byte date + battery).
     """
     from .constants import LogOperate
     from .models import LogEntry
 
+    payload = data[idx:rec_end]
     uid: int | None = None
     record_id: int | None = None
     password: str | None = None
@@ -392,93 +450,63 @@ def _decode_log_record(  # noqa: PLR0913, PLR0912  -- record-type dispatch is a 
     delete_date: str | None = None
     key_id: int | None = None
     accessory_battery: int | None = None
-    app_unlock_types = {
-        LogOperate.MOBILE_UNLOCK.value,
-        LogOperate.BLE_LOCK.value,
-        LogOperate.GATEWAY_UNLOCK.value,
-        LogOperate.APP_UNLOCK_FAILED_LOCK_REVERSE.value,
-        LogOperate.REMOTE_CONTROL_KEY.value,
-    }
-    keypad_pair_types = {
-        LogOperate.KEYBOARD_PASSWORD_UNLOCK.value,
-        LogOperate.USE_DELETE_CODE.value,
-        LogOperate.PASSCODE_EXPIRED.value,
-        LogOperate.SPACE_INSUFFICIENT.value,
-        LogOperate.PASSCODE_IN_BLACK_LIST.value,
-        LogOperate.PASSCODE_LOCK.value,
-        LogOperate.PASSCODE_UNLOCK_FAILED_LOCK_REVERSE.value,
-        LogOperate.KEYBOARD_MODIFY_PASSWORD.value,
-        LogOperate.KEYBOARD_REMOVE_SINGLE_PASSWORD.value,
-        LogOperate.KEYBOARD_PASSWORD_KICKED.value,
-    }
-    if record_type in app_unlock_types and rec_end - idx >= 8:
-        uid = int.from_bytes(data[idx : idx + 4], "big")
-        record_id = int.from_bytes(data[idx + 4 : idx + 8], "big")
-        if record_type == LogOperate.REMOTE_CONTROL_KEY.value and rec_end - idx >= 9:
-            key_id = data[idx + 8]
-    elif record_type in keypad_pair_types and idx < rec_end:
-        pwd_len = data[idx]
-        idx += 1
-        password = data[idx : idx + pwd_len].decode("ascii", errors="replace")
-        idx += pwd_len
-        if idx < rec_end:
-            new_pwd_len = data[idx]
-            idx += 1
-            new_password = data[idx : idx + new_pwd_len].decode("ascii", errors="replace")
-    elif record_type == LogOperate.ERROR_PASSWORD_UNLOCK.value and idx < rec_end:
-        pwd_len = data[idx]
-        idx += 1
-        password = data[idx : idx + pwd_len].decode("ascii", errors="replace")
-    elif record_type == LogOperate.KEYBOARD_REMOVE_ALL_PASSWORDS.value and rec_end - idx >= 5:
-        delete_date = "20" + "".join(f"{data[idx + i]:02d}" for i in range(5))
-    elif record_type in {
-        LogOperate.ADD_IC.value,
-        LogOperate.DELETE_IC_SUCCEED.value,
-        LogOperate.IC_UNLOCK_SUCCEED.value,
-        LogOperate.IC_LOCK.value,
-        LogOperate.IC_UNLOCK_FAILED_LOCK_REVERSE.value,
-    }:
-        # IC card id: 4 or 8 bytes depending on firmware revision.
-        remaining = rec_end - idx
-        if remaining >= 8:
-            password = str(int.from_bytes(data[idx : idx + 8], "big"))
-        elif remaining >= 4:
-            password = str(int.from_bytes(data[idx : idx + 4], "big"))
-    elif (
-        record_type
-        in {
-            LogOperate.FR_UNLOCK_SUCCEED.value,
-            LogOperate.ADD_FR.value,
-            LogOperate.FR_UNLOCK_FAILED.value,
-            LogOperate.DELETE_FR_SUCCEED.value,
-            LogOperate.FR_LOCK.value,
-            LogOperate.FR_UNLOCK_FAILED_LOCK_REVERSE.value,
-        }
-        and rec_end - idx >= 6
-    ):
-        # Fingerprint id: 6-byte big-endian integer (mirrors the JS reference,
-        # which prepends two zero bytes and reads it as a signed 64-bit value).
-        password = str(int.from_bytes(data[idx : idx + 6], "big"))
-    elif (
-        record_type
-        in {
-            LogOperate.BONG_UNLOCK.value,
-            LogOperate.WIRELESS_KEY_FOB.value,
-            LogOperate.WIRELESS_KEY_PAD.value,
-        }
-        and rec_end - idx >= 6
-    ):
-        # 6-byte MAC, transmitted little-endian; render as `aa:bb:cc:dd:ee:ff`.
-        mac = data[idx : idx + 6]
-        password = ":".join(f"{b:02x}" for b in reversed(mac))
-        if record_type in {LogOperate.WIRELESS_KEY_FOB.value, LogOperate.WIRELESS_KEY_PAD.value}:
-            if rec_end - idx >= 7:
-                key_id = data[idx + 6]
-            if rec_end - idx >= 8:
-                accessory_battery = data[idx + 7]
+    start_date: str | None = None
+    end_date: str | None = None
+
+    if record_type in _APP_UID_RID and len(payload) >= 8:
+        uid = int.from_bytes(payload[:4], "big")
+        record_id = int.from_bytes(payload[4:8], "big")
+    elif record_type == 37 and len(payload) >= 9:  # REMOTE_CONTROL_KEY
+        uid = int.from_bytes(payload[:4], "big")
+        record_id = int.from_bytes(payload[4:8], "big")
+        key_id = payload[8]
+    elif record_type in _PWD_PAIR:
+        password, new_password, _ = _decode_pwd_pair(payload)
+    elif record_type in _ERROR_PWD_ONLY:
+        password, _, _ = _decode_pwd_pair(payload)
+    elif record_type in _CLEAR_ALL and len(payload) >= 5:
+        delete_date = _decode_date5(payload[:5])
+        if len(payload) > 5:
+            password, _, _ = _decode_pwd_pair(payload[5:])
+    elif record_type in _CARD_LONG and payload:
+        # Variable-length card id; the SDK reads whatever is left as a big-
+        # endian unsigned int (4 bytes on older firmware, 8 on newer).
+        password = str(int.from_bytes(payload, "big"))
+    elif record_type in _FINGERPRINT_6B and len(payload) >= 6:
+        password = str(int.from_bytes(payload[:6], "big"))
+    elif record_type in _DOOR_SENSOR and payload:
+        accessory_battery = payload[0]
+    elif record_type == 19 and len(payload) >= 6:  # BONG_UNLOCK — MAC only
+        password = _decode_mac6(payload[:6])
+    elif record_type in {55, 82} and len(payload) >= 6:  # WIRELESS_KEY_FOB / double-check fob
+        password = _decode_mac6(payload[:6])
+        if len(payload) >= 7:
+            key_id = payload[6]
+        if len(payload) >= 8:
+            accessory_battery = payload[7]
+    elif record_type == 56 and len(payload) >= 6:  # WIRELESS_KEY_PAD — MAC + battery (no key_id)
+        password = _decode_mac6(payload[:6])
+        if len(payload) >= 7:
+            accessory_battery = payload[6]
+    elif record_type in _SHORT_ID and len(payload) >= 2:
+        password = str(int.from_bytes(payload[:2], "big"))
+    elif record_type in _SIX_BYTE_ID and len(payload) >= 6:
+        password = str(int.from_bytes(payload[:6], "big"))
+    elif record_type == 93 and payload:  # ADD_PASSCODE_SUCCESSFULLY: pwd + start(5) + end(5)
+        pwd_len = payload[0]
+        if 1 + pwd_len <= len(payload):
+            password = payload[1 : 1 + pwd_len].decode("ascii", errors="replace")
+            tail = payload[1 + pwd_len :]
+            if len(tail) >= 5:
+                start_date = _decode_date5(tail[:5])
+            if len(tail) >= 10:
+                end_date = _decode_date5(tail[5:10])
+    elif record_type in _THIRD_DEVICE_MAC and len(payload) >= 6:
+        password = _decode_mac6(payload[:6])
+
     return LogEntry(
         record_number=sequence,
-        record_type=record_type,
+        record_type=LogOperate.coerce(record_type),
         operate_date=operate_date,
         lock_battery=battery,
         uid=uid,
@@ -488,4 +516,6 @@ def _decode_log_record(  # noqa: PLR0913, PLR0912  -- record-type dispatch is a 
         delete_date=delete_date,
         key_id=key_id,
         accessory_battery=accessory_battery,
+        start_date=start_date,
+        end_date=end_date,
     )

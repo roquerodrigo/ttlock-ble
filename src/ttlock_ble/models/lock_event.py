@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..constants import LockState
 
 _COMM_SEARCH_BICYCLE_STATUS = 0x14
 _STATE_PUSH_LEN = 3
@@ -36,7 +40,7 @@ class LockEvent:
     status: int
     data: bytes
     battery: int | None = None
-    lock_state: int | None = None
+    lock_state: LockState | None = None
     uid: int | None = None
     record_id: int | None = None
     timestamp: str | None = None
@@ -48,17 +52,23 @@ class LockEvent:
         Unrecognised opcodes or payload lengths still get a `LockEvent`
         with the raw `data`; the optional decoded fields stay `None`.
         """
+        from ..constants import LockState
+
         raw = bytes(data)
         if cmd_echo != _COMM_SEARCH_BICYCLE_STATUS or len(raw) == 0:
             return cls(cmd_echo=cmd_echo, status=status, data=raw)
         battery = raw[0]
         if len(raw) == _STATE_PUSH_LEN:
+            try:
+                state = LockState(raw[1])
+            except ValueError:
+                state = None
             return cls(
                 cmd_echo=cmd_echo,
                 status=status,
                 data=raw,
                 battery=battery,
-                lock_state=raw[1] if raw[1] in (0, 1) else None,
+                lock_state=state,
             )
         if len(raw) >= _LOG_PUSH_LEN:
             uid = int.from_bytes(raw[1:5], "big")

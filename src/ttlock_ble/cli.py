@@ -8,6 +8,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from dotenv import load_dotenv
@@ -17,6 +18,9 @@ from .client import TTLockClient
 from .cloud import TTLockCloud
 from .exceptions import CloudError
 from .models import VirtualKey
+
+if TYPE_CHECKING:
+    from .constants import LockState
 
 app = typer.Typer(add_completion=False, help="DLock-XP / TTLock BLE control")
 KEY_STORE = Path(os.environ.get("TTLOCK_KEY_STORE", "~/.ttlock/keys.json")).expanduser()
@@ -153,9 +157,10 @@ def state(
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
     s, batt = asyncio.run(_run_state(key))
-    label = {0: "LOCKED", 1: "UNLOCKED"}.get(s, "UNKNOWN")
+    label = s.name if s is not None else "UNKNOWN"
+    state_value = int(s) if s is not None else "?"
     batt_str = f"{batt}%" if batt is not None else "?"
-    typer.echo(f"state: {label} ({s})  battery: {batt_str}")
+    typer.echo(f"state: {label} ({state_value})  battery: {batt_str}")
 
 
 @app.command()
@@ -184,7 +189,7 @@ async def _run_lock(key: VirtualKey) -> None:
         await c.lock()
 
 
-async def _run_state(key: VirtualKey) -> tuple[int, int | None]:
+async def _run_state(key: VirtualKey) -> tuple[LockState | None, int | None]:
     async with TTLockClient(key) as c:
         return await c.query_state()
 

@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..constants import LogOperate
 
 
 @dataclass(frozen=True, slots=True)
@@ -12,17 +16,24 @@ class LogEntry:
     Fields populated depend on `record_type` (the firmware encodes
     different payloads per operation):
 
-    - `uid` is set for app/BLE/gateway unlocks.
-    - `password` carries: keypad code (string of digits), IC card
-      number, fingerprint id, or fob MAC — depending on record type.
-    - `key_id` identifies an accessory (key fob, wireless keypad).
+    - `uid`/`record_id` are set for app, BLE, and gateway unlock/lock
+      records (record types 1, 26, 28, 37, 41, 52, 75, 76, 77).
+    - `password` carries: keypad code (digits), IC card number,
+      fingerprint id, palm-vein id, QR seq, or fob MAC — depending on
+      record type.
+    - `new_password` is set only for the keyboard-modify variants.
+    - `key_id` identifies an accessory (key fob, wireless keypad,
+      remote-control key).
     - `accessory_battery` is the wireless accessory's battery, when
-      relevant; the lock's own battery is in `lock_battery`.
-    - `delete_date` only set for the "all passwords cleared" record.
+      relevant; the lock's own battery is always in `lock_battery`.
+    - `delete_date` is set for the "all passwords cleared" record.
+    - `start_date`/`end_date` are set for the "passcode added"
+      record (type 93), expressing the validity window in `YYYYMMDDhhmm`
+      lock-local time (no seconds).
     """
 
     record_number: int
-    record_type: int
+    record_type: LogOperate | int
     operate_date: str
     lock_battery: int
     uid: int | None = None
@@ -32,3 +43,5 @@ class LogEntry:
     delete_date: str | None = None
     key_id: int | None = None
     accessory_battery: int | None = None
+    start_date: str | None = None
+    end_date: str | None = None

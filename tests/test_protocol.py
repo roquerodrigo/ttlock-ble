@@ -124,8 +124,21 @@ class TestCommands:
 
     def test_parse_lock_status_locked(self):
         # Real captured response; byte 0 of payload is battery, byte 1 is state.
+        from ttlock_ble import LockState
+
         plain = bytes.fromhex("14012d0002")
-        assert cmd.parse_lock_status(plain) == cmd.LOCKED
+        result = cmd.parse_lock_status(plain)
+        assert result is LockState.LOCKED
+        assert result == cmd.LOCKED  # backwards-compat alias
+
+    def test_parse_lock_status_unknown_byte_returns_none(self):
+        # Status byte 5 isn't a valid LockState member.
+        plain = bytes.fromhex("14012d0502")
+        assert cmd.parse_lock_status(plain) is None
+
+    def test_parse_lock_status_failed_response_returns_none(self):
+        plain = bytes.fromhex("140008")
+        assert cmd.parse_lock_status(plain) is None
 
     def test_parse_state_battery(self):
         plain = bytes.fromhex("14012d0002")
@@ -262,6 +275,110 @@ class TestOperationLog:
         assert e.password == "1234"
         assert e.lock_battery == 45
         assert e.operate_date == "20260511142307"
+
+    def _wrap(self, record_body: bytes, *, sequence: int = 1) -> bytes:
+        rec_len = len(record_body)
+        return (
+            bytes([0x25, 0x01])
+            + (rec_len + 5).to_bytes(2, "big")
+            + sequence.to_bytes(2, "big")
+            + bytes([rec_len])
+            + record_body
+        )
+
+    def _header(self, record_type: int, *, battery: int = 50) -> bytes:
+        # record_type + YYMMDDhhmmss + battery — fields the parser strips before
+        # handing the tail to `_decode_log_record`.
+        return bytes([record_type]) + bytes([26, 5, 17, 12, 0, 0]) + bytes([battery])
+
+    def test_parse_operate_ble_lock_record(self):
+        from ttlock_ble.constants import LogOperate
+
+        # record_type=26 (OPERATE_BLE_LOCK) was previously decoded as UNKNOWN.
+        record = (
+            self._header(LogOperate.OPERATE_BLE_LOCK)
+            + (0xDEADBEEF).to_bytes(4, "big")
+            + (0x6A0224A3).to_bytes(4, "big")
+        )
+        entries, _ = cmd.parse_operate_log_response(self._wrap(record))
+        e = entries[0]
+        assert e.record_type == LogOperate.OPERATE_BLE_LOCK
+        assert e.uid == 0xDEADBEEF
+        assert e.record_id == 0x6A0224A3
+
+    def test_parse_remote_control_key_record(self):
+        from ttlock_ble.constants import LogOperate
+
+        # record_type=37 carries uid+rid+keyId.
+        record = (
+            self._header(LogOperate.REMOTE_CONTROL_KEY)
+            + (1).to_bytes(4, "big")
+            + (2).to_bytes(4, "big")
+            + bytes([7])
+        )
+        entries, _ = cmd.parse_operate_log_response(self._wrap(record))
+        e = entries[0]
+        assert e.uid == 1
+        assert e.record_id == 2
+        assert e.key_id == 7
+
+    def test_parse_wireless_key_fob_record(self):
+        from ttlock_ble.constants import LogOperate
+
+        # record_type=55 carries MAC (LE) + keyId + accessory_battery.
+        mac_le = bytes.fromhex("1d22bda0efe9")
+        record = self._header(LogOperate.WIRELESS_KEY_FOB) + mac_le + bytes([3, 88])
+        entries, _ = cmd.parse_operate_log_response(self._wrap(record))
+        e = entries[0]
+        assert e.password == "e9:ef:a0:bd:22:1d"
+        assert e.key_id == 3
+        assert e.accessory_battery == 88
+
+    def test_parse_wireless_key_pad_has_battery_but_no_key_id(self):
+        from ttlock_ble.constants import LogOperate
+
+        # record_type=56 carries MAC + accessory_battery (no key_id byte).
+        mac_le = bytes.fromhex("aabbccddeeff")
+        record = self._header(LogOperate.WIRELESS_KEY_PAD) + mac_le + bytes([42])
+        entries, _ = cmd.parse_operate_log_response(self._wrap(record))
+        e = entries[0]
+        assert e.password == "ff:ee:dd:cc:bb:aa"
+        assert e.accessory_battery == 42
+        assert e.key_id is None
+
+    def test_parse_log_record_type_is_enum_member(self):
+        from ttlock_ble.constants import LogOperate
+
+        record = (
+            self._header(LogOperate.MOBILE_UNLOCK) + (1).to_bytes(4, "big") + (2).to_bytes(4, "big")
+        )
+        entries, _ = cmd.parse_operate_log_response(self._wrap(record))
+        assert entries[0].record_type is LogOperate.MOBILE_UNLOCK
+
+    def test_parse_log_record_unknown_type_falls_back_to_int(self):
+        # byte 200 isn't defined in LogOperate — must surface as raw int.
+        record = self._header(200)
+        entries, _ = cmd.parse_operate_log_response(self._wrap(record))
+        assert entries[0].record_type == 200
+        assert not hasattr(entries[0].record_type, "name")
+
+    def test_parse_add_passcode_record_carries_validity_window(self):
+        from ttlock_ble.constants import LogOperate
+
+        # record_type=93 (ADD_PASSCODE_SUCCESSFULLY) carries pwd + start(5) + end(5).
+        pwd = b"246810"
+        record = (
+            self._header(LogOperate.ADD_PASSCODE_SUCCESSFULLY)
+            + bytes([len(pwd)])
+            + pwd
+            + bytes([26, 5, 17, 12, 0])  # start: 2026-05-17 12:00
+            + bytes([26, 5, 18, 12, 0])  # end:   2026-05-18 12:00
+        )
+        entries, _ = cmd.parse_operate_log_response(self._wrap(record))
+        e = entries[0]
+        assert e.password == "246810"
+        assert e.start_date == "202605171200"
+        assert e.end_date == "202605181200"
 
 
 class TestLockVersion:

@@ -12,7 +12,7 @@ from bleak import BleakClient, BleakScanner
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from . import commands as cmd
-from .constants import KeyboardPwdType
+from .constants import KeyboardPwdType, LockState
 from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError
 from .models import LockEvent, LogEntry
@@ -258,11 +258,12 @@ class TTLockClient:
         with contextlib.suppress(ValueError):
             self._event_listeners.remove(listener)
 
-    async def query_state(self) -> tuple[int, int | None]:
+    async def query_state(self) -> tuple[LockState | None, int | None]:
         """Return `(lock_state, battery_pct)`.
 
-        `lock_state`: 0=LOCKED, 1=UNLOCKED, -1=UNKNOWN.
-        `battery_pct`: 0-100 or None if not reported.
+        `lock_state`: `LockState.LOCKED`, `LockState.UNLOCKED`, or `None`
+        when the lock failed the request or returned an unrecognised byte.
+        `battery_pct`: 0-100 or `None` if not reported.
 
         Doesn't need CHECK_USER_TIME — search-bicycle-status is unauthenticated.
         """
@@ -331,20 +332,36 @@ class TTLockClient:
                 "clear_passcodes",
             )
 
-    async def get_operation_log(self, *, max_entries: int | None = None) -> list[LogEntry]:
-        """Pull operation-log entries from the lock, newest-first.
+    async def get_operation_log(
+        self,
+        *,
+        max_entries: int | None = None,
+        from_sequence: int = 0xFFFF,
+    ) -> list[LogEntry]:
+        """Pull on-device operation-log entries over BLE.
 
-        The lock returns one BLE frame per request — typically just a
-        single record on this firmware. We walk the log backwards by
-        seeding each subsequent call with the smallest sequence we've
-        already seen, deduplicating against records we've already
-        captured (some firmware revisions ignore our seq hint and just
-        keep echoing the most recent entry, in which case we stop).
+        First request seeds with `from_sequence` — the default `0xFFFF`
+        is "give me what I haven't seen since the last sync"; pass a
+        concrete sequence to re-fetch already-acknowledged history (the
+        TTLock Android SDK does this in its `OperateLogType.ALL` second
+        pass). The lock answers with one record per BLE frame on observed
+        firmware (DLock-XP V3), and the response's page-level `sequence`
+        is the cursor we echo back verbatim to fetch the next record —
+        matching `CommandUtil_V3.getOperateLog` in the SDK. Order is
+        firmware-dependent: the V3 firmware emits ascending sequences
+        (oldest → newest), which means the returned list is also
+        ascending; callers that want newest-first should `reversed()` it.
+
+        Termination: an empty page (`total_len == 0`), `last_seq == 0`,
+        the cursor failing to advance, or a page composed entirely of
+        records we've already seen (some firmware revisions ignore our
+        seq hint and re-echo the latest entry, which is what `seen`
+        guards against).
         """
         async with self._command_lock:
             all_entries: list[LogEntry] = []
             seen: set[int] = set()
-            next_seq = 0xFFFF
+            next_seq = from_sequence
             while True:
                 frame = Frame.for_lock(
                     self.key.lockVersion,
@@ -356,6 +373,8 @@ class TTLockClient:
                 log.debug("operate_log response plaintext: %s", plain.hex())
                 page, last_seq = cmd.parse_operate_log_response(plain)
                 log.info("Fetched %d log entr(ies), last_sequence=%d", len(page), last_seq)
+                if not page:
+                    break
                 new_entries = [
                     e for e in page if isinstance(e, LogEntry) and e.record_number not in seen
                 ]
@@ -366,10 +385,9 @@ class TTLockClient:
                 all_entries.extend(new_entries)
                 if max_entries is not None and len(all_entries) >= max_entries:
                     return all_entries[:max_entries]
-                min_seq = min(e.record_number for e in new_entries)
-                if min_seq <= 0:
+                if last_seq in {0, next_seq}:
                     break
-                next_seq = min_seq
+                next_seq = last_seq
             return all_entries
 
     def _restart_keep_alive(self) -> None:

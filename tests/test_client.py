@@ -1,9 +1,11 @@
 """TTLockClient construction and event-listener routing (no BLE I/O)."""
 
+import asyncio
 from unittest.mock import MagicMock
 
-from ttlock_ble import LockEvent, LockVersion, TTLockClient, VirtualKey
-from ttlock_ble.crypto import aes_encrypt, hex_key_to_bytes
+from ttlock_ble import LockEvent, LockState, LockVersion, TTLockClient, VirtualKey
+from ttlock_ble.constants import LogOperate
+from ttlock_ble.crypto import aes_decrypt, aes_encrypt, hex_key_to_bytes
 from ttlock_ble.protocol import Frame
 
 
@@ -130,7 +132,7 @@ class TestLockEventDecoding:
     def test_short_state_push_extracts_battery_and_state(self):
         event = LockEvent.from_payload(0x14, 1, bytes.fromhex("2c0102"))
         assert event.battery == 0x2C
-        assert event.lock_state == 1
+        assert event.lock_state is LockState.UNLOCKED
         assert event.uid is None
         assert event.record_id is None
         assert event.timestamp is None
@@ -165,3 +167,126 @@ class TestLockEventDecoding:
         event = LockEvent.from_payload(0x14, 1, payload)
         assert event.uid == 0
         assert event.timestamp is None
+
+
+def _operate_log_response_frame(key: VirtualKey, sequence: int, records: list[bytes]) -> Frame:
+    """Build a CMD_GET_OPERATE_LOG response frame the client can decrypt.
+
+    `sequence` is the page-level cursor the lock echoes back. Each entry
+    in `records` is the variable-length record body (type+date+battery
+    +payload) that `parse_operate_log_response` walks one byte-length
+    prefix at a time.
+    """
+    payload = bytearray()
+    for r in records:
+        payload.append(len(r))
+        payload.extend(r)
+    if records:
+        plain = (
+            bytes([0x25, 0x01])
+            + (len(payload) + 5).to_bytes(2, "big")
+            + sequence.to_bytes(2, "big")
+            + bytes(payload)
+        )
+    else:
+        # Empty page: total_len==0 signals "no more entries".
+        plain = bytes([0x25, 0x01, 0x00, 0x00])
+    aes = hex_key_to_bytes(key.aesKeyStr)
+    return Frame(
+        protocol_type=key.lockVersion.protocolType,
+        sub_version=key.lockVersion.protocolVersion,
+        scene=key.lockVersion.scene,
+        group_id=key.lockVersion.groupId,
+        sub_org=key.lockVersion.orgId,
+        command=0x25,
+        encrypt=0xAA,
+        data=aes_encrypt(plain, aes),
+    )
+
+
+def _keypad_record(pwd: str = "1234") -> bytes:  # noqa: S107  -- test fixture, not a real secret
+    return (
+        bytes([LogOperate.KEYBOARD_PASSWORD_UNLOCK])  # type
+        + bytes([26, 5, 11, 14, 23, 7])  # YYMMDDhhmmss
+        + bytes([45])  # battery
+        + bytes([len(pwd)])
+        + pwd.encode("ascii")
+        + bytes([0])  # new_pwd_len
+    )
+
+
+class TestOperationLogPagination:
+    """`get_operation_log` walks the lock log via the page-level sequence cursor."""
+
+    def _request_sequences(self, key: VirtualKey, sent_frames: list[Frame]) -> list[int]:
+        aes = hex_key_to_bytes(key.aesKeyStr)
+        return [int.from_bytes(aes_decrypt(f.data, aes)[:2], "big") for f in sent_frames]
+
+    def test_paginates_using_response_sequence_verbatim(self):
+        key = _virtual_key()
+        client = TTLockClient(key)
+        sent: list[Frame] = []
+        # Three pages, then an empty page to signal "done". Sequence direction
+        # is firmware-dependent — DLock-XP V3 returns ascending sequences in
+        # practice, but the cursor logic is symmetric, so the fixture uses
+        # descending values to keep the off-by-one bug regression clear.
+        scripted = [
+            _operate_log_response_frame(key, sequence=5, records=[_keypad_record("1111")]),
+            _operate_log_response_frame(key, sequence=4, records=[_keypad_record("2222")]),
+            _operate_log_response_frame(key, sequence=3, records=[_keypad_record("3333")]),
+            _operate_log_response_frame(key, sequence=0, records=[]),
+        ]
+        replies = iter(scripted)
+
+        async def fake_exchange(frame: Frame, *, timeout: float = 6.0) -> Frame:  # noqa: ASYNC109
+            sent.append(frame)
+            return next(replies)
+
+        client._exchange = fake_exchange  # type: ignore[method-assign]
+        entries = asyncio.run(client.get_operation_log())
+
+        assert [e.password for e in entries] == ["1111", "2222", "3333"]
+        # First call uses 0xFFFF; each subsequent call echoes the prior response's sequence.
+        assert self._request_sequences(key, sent) == [0xFFFF, 5, 4, 3]
+
+    def test_stops_when_firmware_echoes_same_batch(self):
+        # Some firmware revisions ignore our cursor and re-emit the latest entry.
+        # Dedup must break the loop so we don't hang.
+        key = _virtual_key()
+        client = TTLockClient(key)
+        sent: list[Frame] = []
+        same = _keypad_record("9999")
+        replies = iter(
+            [
+                _operate_log_response_frame(key, sequence=7, records=[same]),
+                _operate_log_response_frame(key, sequence=7, records=[same]),
+            ]
+        )
+
+        async def fake_exchange(frame: Frame, *, timeout: float = 6.0) -> Frame:  # noqa: ASYNC109
+            sent.append(frame)
+            return next(replies)
+
+        client._exchange = fake_exchange  # type: ignore[method-assign]
+        entries = asyncio.run(client.get_operation_log())
+
+        assert len(entries) == 1
+        assert entries[0].password == "9999"
+        assert self._request_sequences(key, sent) == [0xFFFF, 7]
+
+    def test_max_entries_caps_pagination(self):
+        key = _virtual_key()
+        client = TTLockClient(key)
+        scripted = [
+            _operate_log_response_frame(key, sequence=10, records=[_keypad_record("aaaa")]),
+            _operate_log_response_frame(key, sequence=9, records=[_keypad_record("bbbb")]),
+            _operate_log_response_frame(key, sequence=8, records=[_keypad_record("cccc")]),
+        ]
+        replies = iter(scripted)
+
+        async def fake_exchange(_frame: Frame, *, timeout: float = 6.0) -> Frame:  # noqa: ASYNC109
+            return next(replies)
+
+        client._exchange = fake_exchange  # type: ignore[method-assign]
+        entries = asyncio.run(client.get_operation_log(max_entries=2))
+        assert [e.password for e in entries] == ["aaaa", "bbbb"]

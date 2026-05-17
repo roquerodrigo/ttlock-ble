@@ -8,7 +8,14 @@ from __future__ import annotations
 
 from .auto_lock_operate import AutoLockOperate
 from .keyboard_pwd_type import KeyboardPwdType
+from .lock_state import LockState
 from .log_operate import LogOperate
 from .pwd_operate_type import PwdOperateType
 
-__all__ = ["AutoLockOperate", "KeyboardPwdType", "LogOperate", "PwdOperateType"]
+__all__ = [
+    "AutoLockOperate",
+    "KeyboardPwdType",
+    "LockState",
+    "LogOperate",
+    "PwdOperateType",
+]
