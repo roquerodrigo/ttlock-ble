@@ -11,3 +11,4 @@ htmlcov/
 .ruff_cache/
 .pytest_cache/
 /resources/
+/operation_log_*.txt

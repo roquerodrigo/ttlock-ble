@@ -50,6 +50,11 @@ ignore = [
 "src/ttlock_ble/models/*.py" = [
     "N815",     # cloud-facing dataclass fields keep upstream camelCase
 ]
+"scripts/**" = [
+    "T201",     # operator scripts print their output to the terminal
+    "D",        # one-shot CLI helpers self-document via argparse help
+    "TC001",    # runtime-imported types are clearer than TYPE_CHECKING gymnastics
+]
 
 [lint.flake8-pytest-style]
 fixture-parentheses = false
