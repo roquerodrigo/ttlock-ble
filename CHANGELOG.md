@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.3](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.2...v0.1.3) (2026-05-17)
+
+
+### Features
+
+* **scripts:** add dump_operation_log CLI for offline log inspection ([8fca91b](https://github.com/roquerodrigo/ttlock-ble/commit/8fca91b23db43c018ee8a933f61322ad23a6b561))
+
+
+### Bug Fixes
+
+* **client:** paginate operation log via response cursor; decode full record-type catalog ([20aa051](https://github.com/roquerodrigo/ttlock-ble/commit/20aa0514f9f124025d4b1ac051c8e5007e3f8d68))
+
 ## [0.1.2](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.1...v0.1.2) (2026-05-11)
 
 
