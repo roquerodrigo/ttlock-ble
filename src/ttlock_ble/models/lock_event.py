@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..constants import LockState
+    from ..constants import LockState, ResponseStatus
 
 _COMM_SEARCH_BICYCLE_STATUS = 0x14
 _STATE_PUSH_LEN = 3
@@ -37,13 +38,13 @@ class LockEvent:
     """
 
     cmd_echo: int
-    status: int
+    status: ResponseStatus | int
     data: bytes
     battery: int | None = None
     lock_state: LockState | None = None
     uid: int | None = None
     record_id: int | None = None
-    timestamp: str | None = None
+    timestamp: dt.datetime | None = None
 
     @classmethod
     def from_payload(cls, cmd_echo: int, status: int, data: bytes) -> LockEvent:
@@ -51,12 +52,18 @@ class LockEvent:
 
         Unrecognised opcodes or payload lengths still get a `LockEvent`
         with the raw `data`; the optional decoded fields stay `None`.
+        Unknown `status` bytes are kept as the raw int — the enum is a
+        narrowing helper, not a validator.
         """
-        from ..constants import LockState
+        from ..constants import LockState, ResponseStatus
 
+        try:
+            status_value: ResponseStatus | int = ResponseStatus(status)
+        except ValueError:
+            status_value = status
         raw = bytes(data)
         if cmd_echo != _COMM_SEARCH_BICYCLE_STATUS or len(raw) == 0:
-            return cls(cmd_echo=cmd_echo, status=status, data=raw)
+            return cls(cmd_echo=cmd_echo, status=status_value, data=raw)
         battery = raw[0]
         if len(raw) == _STATE_PUSH_LEN:
             try:
@@ -65,7 +72,7 @@ class LockEvent:
                 state = None
             return cls(
                 cmd_echo=cmd_echo,
-                status=status,
+                status=status_value,
                 data=raw,
                 battery=battery,
                 lock_state=state,
@@ -76,35 +83,32 @@ class LockEvent:
             timestamp = _decode_timestamp(raw[9:15])
             return cls(
                 cmd_echo=cmd_echo,
-                status=status,
+                status=status_value,
                 data=raw,
                 battery=battery,
                 uid=uid,
                 record_id=record_id,
                 timestamp=timestamp,
             )
-        return cls(cmd_echo=cmd_echo, status=status, data=raw, battery=battery)
+        return cls(cmd_echo=cmd_echo, status=status_value, data=raw, battery=battery)
 
 
-def _decode_timestamp(date_bytes: bytes) -> str | None:
-    """Decode the lock's 6-byte decimal-encoded `YYMMDDhhmmss` into ISO-8601.
+def _decode_timestamp(date_bytes: bytes) -> dt.datetime | None:
+    """Decode the lock's 6-byte decimal-encoded `YYMMDDhhmmss` into a `datetime`.
 
     Each byte holds a decimal value (e.g. 0x1a = 26 for the year 2026,
-    not 0x1a hex characters). Returns `None` if any byte is out of the
-    plausible range — a guard against misinterpreting a payload that
+    not 0x1a hex characters). Returns `None` if the values don't form a
+    valid calendar date — a guard against misinterpreting a payload that
     happens to be 15 bytes but isn't actually a log push.
+
+    The returned `datetime` is naive (lock-local), since the lock's RTC
+    has no timezone — see `TTLockClient.calibrate_time`.
     """
     try:
         yy, mm, dd, hh, mn, ss = date_bytes
     except ValueError:
         return None
-    if not (
-        0 <= yy <= 99
-        and 1 <= mm <= 12
-        and 1 <= dd <= 31
-        and 0 <= hh <= 23
-        and 0 <= mn <= 59
-        and 0 <= ss <= 59
-    ):
+    try:
+        return dt.datetime(2000 + yy, mm, dd, hh, mn, ss)  # noqa: DTZ001 — lock RTC is naive
+    except ValueError:
         return None
-    return f"20{yy:02d}-{mm:02d}-{dd:02d} {hh:02d}:{mn:02d}:{ss:02d}"

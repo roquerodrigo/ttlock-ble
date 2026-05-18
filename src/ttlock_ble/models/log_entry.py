@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import datetime as dt
+
     from ..constants import LogOperate
 
 
@@ -28,20 +30,25 @@ class LogEntry:
       relevant; the lock's own battery is always in `lock_battery`.
     - `delete_date` is set for the "all passwords cleared" record.
     - `start_date`/`end_date` are set for the "passcode added"
-      record (type 93), expressing the validity window in `YYYYMMDDhhmm`
-      lock-local time (no seconds).
+      record (type 93), expressing the validity window (no seconds —
+      the firmware encodes those entries with a 5-byte date).
+
+    Date fields are naive `datetime`s in lock-local time (the lock's RTC
+    has no timezone — see `TTLockClient.calibrate_time`). They are
+    `None` only when the firmware sent bytes that don't form a valid
+    calendar date, which the parser tolerates rather than raising.
     """
 
     record_number: int
     record_type: LogOperate | int
-    operate_date: str
+    operate_date: dt.datetime | None
     lock_battery: int
     uid: int | None = None
     record_id: int | None = None
     password: str | None = None
     new_password: str | None = None
-    delete_date: str | None = None
+    delete_date: dt.datetime | None = None
     key_id: int | None = None
     accessory_battery: int | None = None
-    start_date: str | None = None
-    end_date: str | None = None
+    start_date: dt.datetime | None = None
+    end_date: dt.datetime | None = None

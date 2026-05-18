@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 
 from .constants.lock_state import LockState
+from .constants.response_status import ResponseStatus
 
 CMD_SEARCH_DEVICE_FEATURE = 0x01
 CMD_INIT_PASSWORDS = 0x31
@@ -35,8 +36,8 @@ APICMD_LOCK_BY_ADMIN = 13
 
 VENDOR = "0658d44e0c504619a09c5b91be75a3a8"
 
-RESPONSE_SUCCESS = 0x01
-RESPONSE_FAILED = 0x00
+RESPONSE_SUCCESS = ResponseStatus.SUCCESS
+RESPONSE_FAILED = ResponseStatus.FAILED
 
 # `cmd.LOCKED` / `cmd.UNLOCKED` are kept as aliases of the LockState enum
 # members (existing callers can still write `cmd.LOCKED` and compare with
@@ -364,7 +365,7 @@ def parse_operate_log_response(plaintext: bytes) -> tuple[list[object], int]:
             break
         record_type = data[idx]
         idx += 1
-        operate_date = "20" + "".join(f"{data[idx + i]:02d}" for i in range(6))
+        operate_date = _decode_date6_dt(data[idx : idx + 6])
         idx += 6
         battery = data[idx]
         idx += 1
@@ -382,9 +383,36 @@ def parse_operate_log_response(plaintext: bytes) -> tuple[list[object], int]:
     return entries, sequence
 
 
-def _decode_date5(b: bytes) -> str:
-    """Decode a 5-byte (yy,mm,dd,hh,mm) date to `YYYYMMDDhhmm` lock-local time."""
-    return "20" + "".join(f"{b[i]:02d}" for i in range(5))
+def _decode_date5_dt(b: bytes) -> dt.datetime | None:
+    """Decode 5 decimal-encoded bytes `(yy,mm,dd,hh,mm)` into a naive `datetime`.
+
+    Each byte holds a decimal value (e.g. 0x1a = 26 for the year 2026).
+    Returns `None` if the values don't form a valid calendar date —
+    matches the defensive convention in `lock_event._decode_timestamp`.
+    Lock-local time; no timezone (see `TTLockClient.calibrate_time`).
+    """
+    if len(b) < 5:
+        return None
+    try:
+        return dt.datetime(2000 + b[0], b[1], b[2], b[3], b[4])  # noqa: DTZ001 — lock RTC is naive
+    except ValueError:
+        return None
+
+
+def _decode_date6_dt(b: bytes) -> dt.datetime | None:
+    """Decode 6 decimal-encoded bytes `(yy,mm,dd,hh,mm,ss)` into a naive `datetime`.
+
+    Same convention as `_decode_date5_dt` plus a seconds byte. Used by
+    the operate-log record header and the 0x14 log-push notification.
+    """
+    if len(b) < 6:
+        return None
+    try:
+        return dt.datetime(  # noqa: DTZ001 — lock RTC is naive
+            2000 + b[0], b[1], b[2], b[3], b[4], b[5]
+        )
+    except ValueError:
+        return None
 
 
 def _decode_mac6(b: bytes) -> str:
@@ -426,7 +454,7 @@ _THIRD_DEVICE_MAC = {94, 95, 96, 97, 98, 99, 100}
 
 def _decode_log_record(  # noqa: PLR0913, PLR0912, PLR0915  -- flat switch mirrors the SDK
     record_type: int,
-    operate_date: str,
+    operate_date: dt.datetime | None,
     battery: int,
     sequence: int,
     data: bytes,
@@ -447,11 +475,11 @@ def _decode_log_record(  # noqa: PLR0913, PLR0912, PLR0915  -- flat switch mirro
     record_id: int | None = None
     password: str | None = None
     new_password: str | None = None
-    delete_date: str | None = None
+    delete_date: dt.datetime | None = None
     key_id: int | None = None
     accessory_battery: int | None = None
-    start_date: str | None = None
-    end_date: str | None = None
+    start_date: dt.datetime | None = None
+    end_date: dt.datetime | None = None
 
     if record_type in _APP_UID_RID and len(payload) >= 8:
         uid = int.from_bytes(payload[:4], "big")
@@ -465,7 +493,7 @@ def _decode_log_record(  # noqa: PLR0913, PLR0912, PLR0915  -- flat switch mirro
     elif record_type in _ERROR_PWD_ONLY:
         password, _, _ = _decode_pwd_pair(payload)
     elif record_type in _CLEAR_ALL and len(payload) >= 5:
-        delete_date = _decode_date5(payload[:5])
+        delete_date = _decode_date5_dt(payload[:5])
         if len(payload) > 5:
             password, _, _ = _decode_pwd_pair(payload[5:])
     elif record_type in _CARD_LONG and payload:
@@ -498,9 +526,9 @@ def _decode_log_record(  # noqa: PLR0913, PLR0912, PLR0915  -- flat switch mirro
             password = payload[1 : 1 + pwd_len].decode("ascii", errors="replace")
             tail = payload[1 + pwd_len :]
             if len(tail) >= 5:
-                start_date = _decode_date5(tail[:5])
+                start_date = _decode_date5_dt(tail[:5])
             if len(tail) >= 10:
-                end_date = _decode_date5(tail[5:10])
+                end_date = _decode_date5_dt(tail[5:10])
     elif record_type in _THIRD_DEVICE_MAC and len(payload) >= 6:
         password = _decode_mac6(payload[:6])
 

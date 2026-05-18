@@ -1,5 +1,7 @@
 """Frame builder/parser, reassembly, and command payload layout."""
 
+import datetime as dt
+
 import pytest
 
 from ttlock_ble import commands as cmd
@@ -274,7 +276,7 @@ class TestOperationLog:
         assert e.record_type == LogOperate.KEYBOARD_PASSWORD_UNLOCK
         assert e.password == "1234"
         assert e.lock_battery == 45
-        assert e.operate_date == "20260511142307"
+        assert e.operate_date == dt.datetime(2026, 5, 11, 14, 23, 7)  # noqa: DTZ001
 
     def _wrap(self, record_body: bytes, *, sequence: int = 1) -> bytes:
         rec_len = len(record_body)
@@ -377,8 +379,8 @@ class TestOperationLog:
         entries, _ = cmd.parse_operate_log_response(self._wrap(record))
         e = entries[0]
         assert e.password == "246810"
-        assert e.start_date == "202605171200"
-        assert e.end_date == "202605181200"
+        assert e.start_date == dt.datetime(2026, 5, 17, 12, 0)  # noqa: DTZ001
+        assert e.end_date == dt.datetime(2026, 5, 18, 12, 0)  # noqa: DTZ001
 
 
 class TestLockVersion:

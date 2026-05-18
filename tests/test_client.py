@@ -1,6 +1,7 @@
 """TTLockClient construction and event-listener routing (no BLE I/O)."""
 
 import asyncio
+import datetime as dt
 from unittest.mock import MagicMock
 
 from ttlock_ble import LockEvent, LockState, LockVersion, TTLockClient, VirtualKey
@@ -144,7 +145,7 @@ class TestLockEventDecoding:
         assert event.battery == 0x2C
         assert event.uid == 0
         assert event.record_id == 0x6A0224A3
-        assert event.timestamp == "2026-05-11 15:48:08"
+        assert event.timestamp == dt.datetime(2026, 5, 11, 15, 48, 8)  # noqa: DTZ001
         assert event.lock_state is None
 
     def test_unknown_cmd_echo_leaves_decoded_fields_none(self):

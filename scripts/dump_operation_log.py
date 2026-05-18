@@ -57,9 +57,7 @@ def _resolve(target: str | None) -> VirtualKey:
 
 
 def _format(entry: LogEntry) -> str:
-    d = entry.operate_date
-    # YYYYMMDDhhmmss → YYYY-MM-DD hh:mm:ss
-    when = f"{d[0:4]}-{d[4:6]}-{d[6:8]} {d[8:10]}:{d[10:12]}:{d[12:14]}" if len(d) >= 14 else d
+    when = entry.operate_date.strftime("%Y-%m-%d %H:%M:%S") if entry.operate_date else "?"
     label = (
         entry.record_type.name
         if isinstance(entry.record_type, LogOperate)
@@ -84,7 +82,7 @@ def _format(entry: LogEntry) -> str:
     if entry.accessory_battery is not None:
         parts.append(f"acc_batt={entry.accessory_battery}%")
     if entry.delete_date:
-        parts.append(f"deleted_at={entry.delete_date}")
+        parts.append(f"deleted_at={entry.delete_date.strftime('%Y-%m-%d %H:%M')}")
     return "  ".join(parts)
 
 
