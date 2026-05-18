@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.4...v0.1.5) (2026-05-18)
+
+
+### Features
+
+* **models:** parse lock-event and log-entry dates as datetime; add ResponseStatus enum ([389b702](https://github.com/roquerodrigo/ttlock-ble/commit/389b702831c5bdcb19c5af832b8ea8dcbb4e8bd6))
+
 ## [0.1.4](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.3...v0.1.4) (2026-05-17)
 
 
