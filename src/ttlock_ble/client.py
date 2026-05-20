@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
 import logging
 import time
 from typing import TYPE_CHECKING, Self
@@ -19,7 +20,6 @@ from .models import LockEvent, LogEntry
 from .protocol import Frame, FrameReassembler
 
 if TYPE_CHECKING:
-    import datetime as dt
     from collections.abc import Callable
 
     from bleak.backends.characteristic import BleakGATTCharacteristic
@@ -240,6 +240,53 @@ class TTLockClient:
                     f"Failed to calibrate lock time: lock rejected with "
                     f"status={status:#x}, error={data.hex()}"
                 )
+
+    async def get_lock_time(self) -> dt.datetime:
+        """Read the lock's current RTC as a naive `datetime` (lock-local time).
+
+        The lock has no concept of timezone — the returned datetime mirrors
+        whatever wall-clock reference was last pushed via `calibrate_time`
+        (UTC by default). Useful for measuring drift before deciding to
+        recalibrate; `sync_time` combines both steps.
+        """
+        async with self._command_lock:
+            frame = Frame.for_lock(
+                self.key.lockVersion,
+                cmd.CMD_GET_LOCK_TIME,
+                cmd.payload_get_lock_time(),
+            ).encrypt_data(self._aes_key)
+            resp = await self._exchange(frame)
+            plain = aes_decrypt(resp.data, self._aes_key)
+            try:
+                lock_time = cmd.parse_get_lock_time_response(plain)
+            except (RuntimeError, ValueError) as exc:
+                raise TTLockError(f"Failed to read lock time: {exc}") from exc
+            log.info("Lock RTC = %s", lock_time.isoformat())
+            return lock_time
+
+    async def sync_time(
+        self,
+        *,
+        when: dt.datetime | None = None,
+        drift_threshold_seconds: float = 2.0,
+    ) -> float:
+        """Read the lock's clock, return drift, recalibrate when it exceeds the threshold.
+
+        Returns the drift in seconds (lock minus reference) BEFORE any
+        correction — positive when the lock is ahead, negative when it
+        lags. `when` defaults to current UTC, matching `calibrate_time`;
+        passing an aware datetime uses its wall-clock components (tzinfo
+        is dropped to compare against the lock's naive RTC). No calibrate
+        frame is sent when `abs(drift) <= drift_threshold_seconds`, which
+        avoids briefly perturbing the lock's clock on healthy syncs.
+        """
+        reference = (when or dt.datetime.now(dt.UTC)).replace(tzinfo=None)
+        lock_time = await self.get_lock_time()
+        drift = (lock_time - reference).total_seconds()
+        log.info("sync_time drift = %+.3fs (lock=%s, ref=%s)", drift, lock_time, reference)
+        if abs(drift) > drift_threshold_seconds:
+            await self.calibrate_time(reference)
+        return drift
 
     def add_event_listener(self, listener: EventListener) -> None:
         """Register a callback for unsolicited push notifications.

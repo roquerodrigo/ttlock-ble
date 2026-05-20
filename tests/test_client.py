@@ -291,3 +291,122 @@ class TestOperationLogPagination:
         client._exchange = fake_exchange  # type: ignore[method-assign]
         entries = asyncio.run(client.get_operation_log(max_entries=2))
         assert [e.password for e in entries] == ["aaaa", "bbbb"]
+
+
+def _get_lock_time_response_frame(key: VirtualKey, when: dt.datetime) -> Frame:
+    """Build a CMD_GET_LOCK_TIME response frame the client can decrypt."""
+    aes = hex_key_to_bytes(key.aesKeyStr)
+    body = bytes(
+        [
+            0x34,
+            0x01,
+            when.year - 2000,
+            when.month,
+            when.day,
+            when.hour,
+            when.minute,
+            when.second,
+        ]
+    )
+    return Frame(
+        protocol_type=key.lockVersion.protocolType,
+        sub_version=key.lockVersion.protocolVersion,
+        scene=key.lockVersion.scene,
+        group_id=key.lockVersion.groupId,
+        sub_org=key.lockVersion.orgId,
+        command=0x34,
+        encrypt=0xAA,
+        data=aes_encrypt(body, aes),
+    )
+
+
+def _calibrate_ack_frame(key: VirtualKey) -> Frame:
+    aes = hex_key_to_bytes(key.aesKeyStr)
+    return Frame(
+        protocol_type=key.lockVersion.protocolType,
+        sub_version=key.lockVersion.protocolVersion,
+        scene=key.lockVersion.scene,
+        group_id=key.lockVersion.groupId,
+        sub_org=key.lockVersion.orgId,
+        command=0x43,
+        encrypt=0xAA,
+        data=aes_encrypt(bytes([0x43, 0x01]), aes),
+    )
+
+
+class TestSyncTime:
+    """`get_lock_time` reads the RTC; `sync_time` corrects only when drifted."""
+
+    def test_get_lock_time_returns_naive_datetime(self):
+        key = _virtual_key()
+        client = TTLockClient(key)
+        expected = dt.datetime(2026, 5, 20, 12, 34, 56)  # noqa: DTZ001
+        replies = iter([_get_lock_time_response_frame(key, expected)])
+
+        async def fake_exchange(_frame: Frame, *, timeout: float = 6.0) -> Frame:  # noqa: ASYNC109
+            return next(replies)
+
+        client._exchange = fake_exchange  # type: ignore[method-assign]
+        got = asyncio.run(client.get_lock_time())
+        assert got == expected
+        assert got.tzinfo is None
+
+    def test_sync_time_no_calibrate_when_within_threshold(self):
+        key = _virtual_key()
+        client = TTLockClient(key)
+        reference = dt.datetime(2026, 5, 20, 12, 0, 0)  # noqa: DTZ001
+        # Lock is 1s ahead — within the default 2s threshold, so no calibrate.
+        lock_time = reference + dt.timedelta(seconds=1)
+        sent: list[Frame] = []
+        replies = iter([_get_lock_time_response_frame(key, lock_time)])
+
+        async def fake_exchange(frame: Frame, *, timeout: float = 6.0) -> Frame:  # noqa: ASYNC109
+            sent.append(frame)
+            return next(replies)
+
+        client._exchange = fake_exchange  # type: ignore[method-assign]
+        drift = asyncio.run(client.sync_time(when=reference))
+        assert drift == 1.0
+        assert len(sent) == 1  # only the GET_LOCK_TIME exchange
+
+    def test_sync_time_calibrates_when_drift_exceeds_threshold(self):
+        key = _virtual_key()
+        client = TTLockClient(key)
+        reference = dt.datetime(2026, 5, 20, 12, 0, 0)  # noqa: DTZ001
+        # Lock is 10s behind — exceeds default threshold, must calibrate.
+        lock_time = reference - dt.timedelta(seconds=10)
+        sent: list[Frame] = []
+        replies = iter(
+            [
+                _get_lock_time_response_frame(key, lock_time),
+                _calibrate_ack_frame(key),
+            ]
+        )
+
+        async def fake_exchange(frame: Frame, *, timeout: float = 6.0) -> Frame:  # noqa: ASYNC109
+            sent.append(frame)
+            return next(replies)
+
+        client._exchange = fake_exchange  # type: ignore[method-assign]
+        drift = asyncio.run(client.sync_time(when=reference))
+        assert drift == -10.0
+        assert len(sent) == 2  # GET_LOCK_TIME + TIME_CALIBRATE
+        assert sent[0].command == 0x34
+        assert sent[1].command == 0x43
+        # Calibrate payload should encode the reference datetime (6 decimal bytes).
+        calib_plain = aes_decrypt(sent[1].data, hex_key_to_bytes(key.aesKeyStr))
+        assert calib_plain == bytes([26, 5, 20, 12, 0, 0])
+
+    def test_sync_time_drops_tzinfo_from_reference(self):
+        key = _virtual_key()
+        client = TTLockClient(key)
+        aware_ref = dt.datetime(2026, 5, 20, 12, 0, 0, tzinfo=dt.UTC)
+        lock_time = dt.datetime(2026, 5, 20, 12, 0, 1)  # noqa: DTZ001  # naive, +1s
+        replies = iter([_get_lock_time_response_frame(key, lock_time)])
+
+        async def fake_exchange(_frame: Frame, *, timeout: float = 6.0) -> Frame:  # noqa: ASYNC109
+            return next(replies)
+
+        client._exchange = fake_exchange  # type: ignore[method-assign]
+        drift = asyncio.run(client.sync_time(when=aware_ref))
+        assert drift == 1.0
