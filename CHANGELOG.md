@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.6](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.5...v0.1.6) (2026-05-24)
+
+
+### Features
+
+* **client:** add sync_time and get_lock_time for drift-aware RTC sync ([f850ed2](https://github.com/roquerodrigo/ttlock-ble/commit/f850ed2f7c61b565d0f5d30254138817c2ea8776))
+
+
+### Bug Fixes
+
+* **deps:** split lint group from dev (matches reusable workflow) ([7246328](https://github.com/roquerodrigo/ttlock-ble/commit/72463288b0a35ebb4e52b137c305ad010715906d))
+* set mypy default files=src + lower cov-fail-under to 60% (actual 63%) ([6a65f7a](https://github.com/roquerodrigo/ttlock-ble/commit/6a65f7a356d88edb81ba9a62738fa0a96bed7879))
+
 ## [0.1.5](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.4...v0.1.5) (2026-05-18)
 
 
