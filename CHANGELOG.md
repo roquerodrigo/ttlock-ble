@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.6...v0.1.7) (2026-05-25)
+
+
+### Documentation
+
+* add README and MIT LICENSE ([c1d8e84](https://github.com/roquerodrigo/ttlock-ble/commit/c1d8e8480039e20a25686444ece7813a7975d9be))
+
 ## [0.1.6](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.5...v0.1.6) (2026-05-24)
 
 
