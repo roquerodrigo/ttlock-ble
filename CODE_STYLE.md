@@ -202,8 +202,8 @@ and generate `CHANGELOG.md`:
   short list of justified ignores.
 - Mypy configuration lives in `mypy.ini` (strict).
 - Pytest configuration lives in `pytest.ini`, including the coverage flags
-  (`--cov=src/ttlock_ble --cov-report=term-missing --cov-fail-under=60`)
-  in `addopts`, so `uv run pytest` enforces the gate. Raise the 60 % gate
+  (`--cov=src/ttlock_ble --cov-report=term-missing --cov-fail-under=90`)
+  in `addopts`, so `uv run pytest` enforces the gate. Raise the 90 % gate
   as BLE/HTTP mocked coverage grows.
 - Run the lint and test gates directly:
 

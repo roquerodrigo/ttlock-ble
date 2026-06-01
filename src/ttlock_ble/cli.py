@@ -194,5 +194,7 @@ async def _run_state(key: VirtualKey) -> tuple[LockState | None, int | None]:
         return await c.query_state()
 
 
-if __name__ == "__main__":
+if (
+    __name__ == "__main__"
+):  # pragma: no cover  -- module entry point, exercised via the `ttlock` console script
     app()
