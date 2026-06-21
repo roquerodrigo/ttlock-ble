@@ -47,13 +47,13 @@ packages = ["src/ttlock_ble"]
 
 [dependency-groups]
 dev = [
-    "pytest==9.0.3",
+    "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     "pre-commit==4.6.0",
 ]
 lint = [
-    "ruff==0.15.14",
+    "ruff==0.15.18",
     "mypy==2.1.0",
 ]
 
