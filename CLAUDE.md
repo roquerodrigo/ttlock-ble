@@ -26,3 +26,12 @@ uv run pytest
 
 Both gates mirror CI. Skip this only when the change literally cannot
 affect lint or tests (e.g., README-only edits).
+
+## Cross-repo coupling
+
+The sibling repo [`ha-ttlock-ble`](https://github.com/roquerodrigo/ha-ttlock-ble)
+(Home Assistant integration) is the only consumer and pins an **exact**
+`ttlock-ble` version in its `manifest.json` `requirements`. Publishing a new
+release here does not reach HA users until that pin is bumped and released
+downstream — a breaking change to the public API (see `CODE_STYLE.md`) needs
+a coordinated update over there, not just a `BREAKING CHANGE:` footer here.
