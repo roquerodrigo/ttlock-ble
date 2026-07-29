@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.8](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.7...v0.1.8) (2026-07-29)
+
+
+### Features
+
+* **models:** decode lock state from BLE advertisements ([75a3601](https://github.com/roquerodrigo/ttlock-ble/commit/75a36018955d8671046bbd8e32721cf748c497dc))
+
+
+### Documentation
+
+* update CLAUDE.md ([2be577a](https://github.com/roquerodrigo/ttlock-ble/commit/2be577abcbd53a6a1f3c696e59de67f2801ea48f))
+
 ## [0.1.7](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.6...v0.1.7) (2026-05-25)
 
 
