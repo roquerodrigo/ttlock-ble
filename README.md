@@ -94,6 +94,26 @@ def on_event(event):
 lock.add_event_listener(on_event)
 ```
 
+### Passive state, without connecting
+
+The lock also publishes its bolt position and battery level in the manufacturer data of
+every BLE advertisement. `LockAdvertisement` decodes that, so a scanner can follow the
+lock without ever opening a session — the only way to observe an **auto-lock**, which the
+firmware writes no log record for and cannot push once it has dropped the link:
+
+```python
+from ttlock_ble import LockAdvertisement
+
+for company_id, payload in advertisement_data.manufacturer_data.items():
+    state = LockAdvertisement.from_manufacturer_data(company_id, payload)
+    if state is not None and state.lock_mac == key.lockMac:
+        print(state.lock_state, state.battery)
+```
+
+It returns `None` for anything that is not a stateful TTLock advertisement, and never
+raises. Compare `lock_mac` against the address you expected before trusting the result:
+a payload long enough to decode is not proof that it came from a lock.
+
 ## CLI
 
 Installing the package exposes a `ttlock` command (env: `TTLOCK_EMAIL`, `TTLOCK_PASSWORD`,
@@ -143,7 +163,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 ### Models & enums
 
-- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockEvent`, `LogEntry`
+- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`
 - **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LogOperate`, `PwdOperateType`
 - **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP)
 

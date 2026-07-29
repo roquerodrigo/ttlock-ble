@@ -6,6 +6,7 @@ Public API:
     VirtualKey     — per-(user, lock) credential bundle
     LockVersion    — firmware identifiers used in the V3 frame header
     SiteInfo       — regional API endpoints (siteId, country, base URL)
+    LockAdvertisement — bolt state + battery decoded from a BLE advertisement
     LockEvent      — push notification surfaced by the BLE client
     LogEntry       — one row from the lock's on-device operation log
     TTLockError    — raised by `TTLockClient` on BLE / protocol failure
@@ -21,12 +22,13 @@ from .client import TTLockClient
 from .cloud import TTLockCloud
 from .constants import AutoLockOperate, KeyboardPwdType, LockState, LogOperate, PwdOperateType
 from .exceptions import CloudError, TTLockError
-from .models import LockEvent, LockVersion, LogEntry, SiteInfo, VirtualKey
+from .models import LockAdvertisement, LockEvent, LockVersion, LogEntry, SiteInfo, VirtualKey
 
 __all__ = [
     "AutoLockOperate",
     "CloudError",
     "KeyboardPwdType",
+    "LockAdvertisement",
     "LockEvent",
     "LockState",
     "LockVersion",
