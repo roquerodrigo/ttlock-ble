@@ -475,7 +475,7 @@ _SHORT_ID = {57, 58}
 _THIRD_DEVICE_MAC = {94, 95, 96, 97, 98, 99, 100}
 
 
-def _decode_log_record(  # noqa: PLR0913, PLR0912, PLR0915  -- flat switch mirrors the SDK
+def _decode_log_record(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915  -- flat switch mirrors the SDK
     record_type: int,
     operate_date: dt.datetime | None,
     battery: int,

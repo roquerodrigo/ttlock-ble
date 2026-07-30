@@ -3,6 +3,9 @@
 target-version = "py311"
 line-length = 100
 
+[format]
+exclude = ["*.md"] # ruff 0.16 formats Python blocks in Markdown; docs keep their own layout
+
 [lint]
 select = [
     "ALL",
@@ -24,6 +27,7 @@ ignore = [
     "PLC0415", # lazy imports break a couple of circular deps; intentional
     "FBT003",  # boolean positional in typer.Option calls is the framework idiom
     "S101",    # we keep asserts as type-narrowing aids for mypy; cheap in CPython
+    "CPY001", # copyright headers are not used in this project
 ]
 
 [lint.per-file-ignores]

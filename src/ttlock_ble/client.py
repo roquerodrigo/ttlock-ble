@@ -189,7 +189,7 @@ class TTLockClient:
             try:
                 if self._notify_char is not None:
                     await self._client.stop_notify(self._notify_char)
-            except Exception:  # noqa: BLE001  -- teardown swallows whatever bleak raises
+            except Exception:  # teardown swallows whatever bleak raises
                 log.debug("stop_notify failed; ignoring on teardown", exc_info=True)
             await self._client.disconnect()
         self._client = None
@@ -554,7 +554,7 @@ class TTLockClient:
         try:
             data = await self._client.read_gatt_char(BATTERY_CHAR)
             log.debug("Wake-up battery read: %d", data[0] if data else -1)
-        except Exception:  # noqa: BLE001  -- non-critical wake nudge
+        except Exception:  # non-critical wake nudge
             log.debug("Battery read skipped", exc_info=True)
 
     def _on_notify(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
