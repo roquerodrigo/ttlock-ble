@@ -4,7 +4,16 @@ import asyncio
 import datetime as dt
 from unittest.mock import MagicMock
 
-from ttlock_ble import LockEvent, LockState, LockVersion, TTLockClient, VirtualKey
+import pytest
+
+from ttlock_ble import (
+    LockEvent,
+    LockState,
+    LockVersion,
+    TTLockClient,
+    TTLockError,
+    VirtualKey,
+)
 from ttlock_ble.constants import LogOperate
 from ttlock_ble.crypto import aes_decrypt, aes_encrypt, hex_key_to_bytes
 from ttlock_ble.protocol import Frame
@@ -410,3 +419,65 @@ class TestSyncTime:
         client._exchange = fake_exchange  # type: ignore[method-assign]
         drift = asyncio.run(client.sync_time(when=aware_ref))
         assert drift == 1.0
+
+
+class TestExchangeRouting:
+    """A push landing mid-exchange must not be mistaken for the reply."""
+
+    def _frame(self, key: VirtualKey, command: int, plaintext: bytes) -> Frame:
+        return Frame(
+            protocol_type=key.lockVersion.protocolType,
+            sub_version=key.lockVersion.protocolVersion,
+            scene=key.lockVersion.scene,
+            group_id=key.lockVersion.groupId,
+            sub_org=key.lockVersion.orgId,
+            command=command,
+            encrypt=0xAA,
+            data=aes_encrypt(plaintext, hex_key_to_bytes(key.aesKeyStr)),
+        )
+
+    async def test_push_is_dispatched_and_the_real_reply_is_returned(self):
+        client = TTLockClient(_virtual_key())
+        events: list[LockEvent] = []
+        client.add_event_listener(events.append)
+
+        request = self._frame(client.key, 0x25, b"")
+        push = self._frame(client.key, 0x54, bytes.fromhex("14012a0100"))
+        reply = self._frame(client.key, 0x25, bytes.fromhex("2501aa"))
+
+        async def fake_send(_frame: Frame) -> None:
+            client._inbox.put_nowait(push)
+            client._inbox.put_nowait(reply)
+
+        client._send = fake_send  # type: ignore[method-assign]
+        received = await client._exchange(request)
+
+        assert received is reply
+        assert [event.cmd_echo for event in events] == [0x14]
+
+    async def test_only_pushes_times_out_without_consuming_the_deadline_twice(self):
+        """A stream of pushes must not extend the wait past the deadline."""
+        client = TTLockClient(_virtual_key())
+        client.add_event_listener(lambda _e: None)
+        request = self._frame(client.key, 0x25, b"")
+        push = self._frame(client.key, 0x54, bytes.fromhex("14012a0100"))
+
+        async def fake_send(_frame: Frame) -> None:
+            client._inbox.put_nowait(push)
+
+        client._send = fake_send  # type: ignore[method-assign]
+        with pytest.raises(TTLockError, match="Timed out waiting"):
+            await client._exchange(request, timeout=0.05)
+
+    async def test_waiting_flag_is_released_after_a_routed_push(self):
+        client = TTLockClient(_virtual_key())
+        request = self._frame(client.key, 0x25, b"")
+        reply = self._frame(client.key, 0x25, bytes.fromhex("2501aa"))
+
+        async def fake_send(_frame: Frame) -> None:
+            client._inbox.put_nowait(self._frame(client.key, 0x54, bytes.fromhex("1401")))
+            client._inbox.put_nowait(reply)
+
+        client._send = fake_send  # type: ignore[method-assign]
+        await client._exchange(request)
+        assert client._waiting_for_response == 0

@@ -598,16 +598,45 @@ class TTLockClient:
         return await asyncio.wait_for(self._inbox.get(), timeout=timeout)
 
     async def _exchange(self, frame: Frame, *, timeout: float = _DEFAULT_RECV_TIMEOUT) -> Frame:  # noqa: ASYNC109  -- forwarded to _recv
+        """Send `frame` and return the lock's reply to *that* command.
+
+        The lock pushes unsolicited frames on the same characteristic,
+        and one landing inside this window used to be handed back as the
+        response: the parsers do not check the echoed opcode, so a
+        15-byte log push read as a status reply yields whatever its
+        second byte happens to be — for a manual key that is the uid's
+        high byte, zero, decoding as LOCKED while the door is open. It
+        also left the real reply in the inbox, desynchronising every
+        later exchange by one frame.
+
+        Frames whose echoed opcode is not the one we sent are therefore
+        routed to the event listeners, where they belong, and the wait
+        continues on the original deadline rather than restarting.
+        """
         # Inbox-vs-event-listener routing in `_on_notify` keys off this flag,
         # so increment around the entire send-then-receive window.
         self._waiting_for_response += 1
         try:
             await self._send(frame)
-            try:
-                return await self._recv(timeout=timeout)
-            except TimeoutError as exc:
-                msg = f"Timed out waiting {timeout:.1f}s for the lock to reply"
-                raise TTLockError(msg) from exc
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + timeout
+            msg = f"Timed out waiting {timeout:.1f}s for the lock to reply"
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise TTLockError(msg)
+                try:
+                    candidate = await self._recv(timeout=remaining)
+                except TimeoutError as exc:
+                    raise TTLockError(msg) from exc
+                if candidate.command == frame.command:
+                    return candidate
+                log.debug(
+                    "Push frame (cmd=0x%02x) arrived while awaiting 0x%02x; dispatching it",
+                    candidate.command,
+                    frame.command,
+                )
+                self._dispatch_event(candidate)
         finally:
             self._waiting_for_response -= 1
 
