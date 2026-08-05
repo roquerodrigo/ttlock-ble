@@ -422,9 +422,32 @@ class TestSyncTime:
 
 
 class TestExchangeRouting:
-    """A push landing mid-exchange must not be mistaken for the reply."""
+    """A push landing mid-exchange must not be mistaken for the reply.
 
-    def _frame(self, key: VirtualKey, command: int, plaintext: bytes) -> Frame:
+    Every lock-to-phone frame carries CMD_RESPONSE (0x54) in its
+    frame-level command byte, whatever it is answering — the opcode
+    being echoed is the first byte of the decrypted payload. The frames
+    built here follow that layout, because tests that echoed the request
+    opcode in the frame byte described a wire that does not exist and
+    certified matching logic that timed out every real command.
+    """
+
+    CMD_RESPONSE = 0x54
+
+    def _lock_frame(self, key: VirtualKey, plaintext: bytes) -> Frame:
+        """Build a frame the way the lock sends one: 0x54, echo in the payload."""
+        return Frame(
+            protocol_type=key.lockVersion.protocolType,
+            sub_version=key.lockVersion.protocolVersion,
+            scene=key.lockVersion.scene,
+            group_id=key.lockVersion.groupId,
+            sub_org=key.lockVersion.orgId,
+            command=self.CMD_RESPONSE,
+            encrypt=0xAA,
+            data=aes_encrypt(plaintext, hex_key_to_bytes(key.aesKeyStr)),
+        )
+
+    def _request(self, key: VirtualKey, command: int) -> Frame:
         return Frame(
             protocol_type=key.lockVersion.protocolType,
             sub_version=key.lockVersion.protocolVersion,
@@ -433,17 +456,30 @@ class TestExchangeRouting:
             sub_org=key.lockVersion.orgId,
             command=command,
             encrypt=0xAA,
-            data=aes_encrypt(plaintext, hex_key_to_bytes(key.aesKeyStr)),
+            data=aes_encrypt(b"", hex_key_to_bytes(key.aesKeyStr)),
         )
+
+    async def test_a_plain_reply_is_returned(self):
+        """The reply's frame byte is 0x54, not the request's opcode."""
+        client = TTLockClient(_virtual_key())
+        request = self._request(client.key, 0x55)
+        reply = self._lock_frame(client.key, bytes.fromhex("55010000002a"))
+        assert reply.command != request.command
+
+        async def fake_send(_frame: Frame) -> None:
+            client._inbox.put_nowait(reply)
+
+        client._send = fake_send  # type: ignore[method-assign]
+        assert await client._exchange(request) is reply
 
     async def test_push_is_dispatched_and_the_real_reply_is_returned(self):
         client = TTLockClient(_virtual_key())
         events: list[LockEvent] = []
         client.add_event_listener(events.append)
 
-        request = self._frame(client.key, 0x25, b"")
-        push = self._frame(client.key, 0x54, bytes.fromhex("14012a0100"))
-        reply = self._frame(client.key, 0x25, bytes.fromhex("2501aa"))
+        request = self._request(client.key, 0x55)
+        push = self._lock_frame(client.key, bytes.fromhex("14012a0100"))
+        reply = self._lock_frame(client.key, bytes.fromhex("55010000002a"))
 
         async def fake_send(_frame: Frame) -> None:
             client._inbox.put_nowait(push)
@@ -459,8 +495,8 @@ class TestExchangeRouting:
         """A stream of pushes must not extend the wait past the deadline."""
         client = TTLockClient(_virtual_key())
         client.add_event_listener(lambda _e: None)
-        request = self._frame(client.key, 0x25, b"")
-        push = self._frame(client.key, 0x54, bytes.fromhex("14012a0100"))
+        request = self._request(client.key, 0x55)
+        push = self._lock_frame(client.key, bytes.fromhex("14012a0100"))
 
         async def fake_send(_frame: Frame) -> None:
             client._inbox.put_nowait(push)
@@ -469,13 +505,34 @@ class TestExchangeRouting:
         with pytest.raises(TTLockError, match="Timed out waiting"):
             await client._exchange(request, timeout=0.05)
 
-    async def test_waiting_flag_is_released_after_a_routed_push(self):
+    async def test_an_undecodable_frame_is_passed_through(self):
+        """We cannot classify it, and a timeout would hide it from the caller."""
         client = TTLockClient(_virtual_key())
-        request = self._frame(client.key, 0x25, b"")
-        reply = self._frame(client.key, 0x25, bytes.fromhex("2501aa"))
+        request = self._request(client.key, 0x55)
+        garbage = Frame(
+            protocol_type=5,
+            sub_version=3,
+            scene=2,
+            group_id=1,
+            sub_org=1,
+            command=self.CMD_RESPONSE,
+            encrypt=0xAA,
+            data=b"\x00" * 16,
+        )
 
         async def fake_send(_frame: Frame) -> None:
-            client._inbox.put_nowait(self._frame(client.key, 0x54, bytes.fromhex("1401")))
+            client._inbox.put_nowait(garbage)
+
+        client._send = fake_send  # type: ignore[method-assign]
+        assert await client._exchange(request) is garbage
+
+    async def test_waiting_flag_is_released_after_a_routed_push(self):
+        client = TTLockClient(_virtual_key())
+        request = self._request(client.key, 0x55)
+        reply = self._lock_frame(client.key, bytes.fromhex("55010000002a"))
+
+        async def fake_send(_frame: Frame) -> None:
+            client._inbox.put_nowait(self._lock_frame(client.key, bytes.fromhex("1401")))
             client._inbox.put_nowait(reply)
 
         client._send = fake_send  # type: ignore[method-assign]

@@ -629,16 +629,40 @@ class TTLockClient:
                     candidate = await self._recv(timeout=remaining)
                 except TimeoutError as exc:
                     raise TTLockError(msg) from exc
-                if candidate.command == frame.command:
+                if self._answers(candidate, frame.command):
                     return candidate
                 log.debug(
-                    "Push frame (cmd=0x%02x) arrived while awaiting 0x%02x; dispatching it",
-                    candidate.command,
+                    "Push frame arrived while awaiting 0x%02x; dispatching it",
                     frame.command,
                 )
                 self._dispatch_event(candidate)
         finally:
             self._waiting_for_response -= 1
+
+    def _answers(self, candidate: Frame, expected_command: int) -> bool:
+        """Report whether `candidate` is the lock's reply to `expected_command`.
+
+        The comparison has to happen on the decrypted payload. Every
+        lock-to-phone frame carries `CMD_RESPONSE` (0x54) in its
+        frame-level command byte, whatever it is answering; the opcode
+        being echoed is the first byte of the plaintext. Comparing the
+        frame byte instead matches nothing and times out every command.
+
+        A frame that will not decode is accepted rather than discarded:
+        it is not something we could route to the event listeners
+        either, and the caller's own parser reports it with far more
+        context than a timeout would.
+        """
+        try:
+            plain = aes_decrypt(candidate.data, self._aes_key)
+            echo, _status, _data = cmd.parse_response_status(plain)
+        except (ValueError, RuntimeError):
+            log.debug(
+                "Undecodable frame while awaiting 0x%02x; passing it through",
+                expected_command,
+            )
+            return True
+        return echo == expected_command
 
     async def _check_user_time(self) -> int:
         """Send CHECK_USER_TIME and return the lock's `psFromLock` token."""
