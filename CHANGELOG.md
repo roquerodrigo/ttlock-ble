@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.1.9](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.8...v0.1.9) (2026-08-05)
+
+
+### Bug Fixes
+
+* **client:** match the echoed opcode before accepting a reply ([b2f14cc](https://github.com/roquerodrigo/ttlock-ble/commit/b2f14cc2185e8713ed3758b4fb12f18b22b9749b))
+
+
+### Dependencies
+
+* **deps:** bump the python-deps group across 1 directory with 2 updates ([3105d90](https://github.com/roquerodrigo/ttlock-ble/commit/3105d90ee082de06f5cedad8b66b7295ec55b6d8))
+
+
+### Continuous Integration
+
+* refresh the lockfile through the release workflow ([6b57932](https://github.com/roquerodrigo/ttlock-ble/commit/6b579321896614c1a32a463a1ace17527c679811))
+
+
+### Miscellaneous Chores
+
+* **deps-dev:** bump ruff to 0.16.0 ([1955ffe](https://github.com/roquerodrigo/ttlock-ble/commit/1955ffe35850c290e891e924d346f6cb48f15a07))
+* **deps:** bump the python-deps group across 1 directory with 3 updates ([6b3ea1f](https://github.com/roquerodrigo/ttlock-ble/commit/6b3ea1fa988d389fc5e8adc0751674b2b209f76f))
+* move CI to the shared workflows repository ([ee9299a](https://github.com/roquerodrigo/ttlock-ble/commit/ee9299a3956e32c3ddbbe8d3caa943d19a4f4c04))
+* release on every conventional commit type ([014c066](https://github.com/roquerodrigo/ttlock-ble/commit/014c066df40980880ef89c2d722d1236e3b89cad))
+
 ## [0.1.8](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.7...v0.1.8) (2026-07-29)
 
 
