@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.9...v0.1.10) (2026-08-05)
+
+
+### Bug Fixes
+
+* **client:** match the echoed opcode inside the payload, not the frame byte ([9523e54](https://github.com/roquerodrigo/ttlock-ble/commit/9523e54cdf1501e31868b2b7c6e6f69f9fd50ec1))
+
 ## [0.1.9](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.8...v0.1.9) (2026-08-05)
 
 
