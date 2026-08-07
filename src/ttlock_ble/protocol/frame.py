@@ -6,7 +6,16 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..crypto import aes_decrypt, aes_encrypt, crc_compute
-from .constants import ENCRYPT_AES, ENCRYPT_PLAIN, HEADER, TRAILER
+from .constants import (
+    ENCRYPT_AES,
+    ENCRYPT_PLAIN,
+    HEADER,
+    LEGACY_HEADER_LEN,
+    LEGACY_LENGTH_INDEX,
+    TRAILER,
+    V3_HEADER_LEN,
+    V3_LENGTH_INDEX,
+)
 
 if TYPE_CHECKING:
     from ..models import LockVersion
@@ -114,10 +123,25 @@ class Frame:
 
     @classmethod
     def parse(cls, raw: bytes) -> Frame:
-        """Parse a raw frame body (without CRC trailer) into a `Frame`."""
+        """Parse a raw frame body (without CRC trailer) into a `Frame`.
+
+        Rejects a payload shorter than its declared length: slicing would
+        silently return the short read, and the mismatch would only surface
+        further down as an unrelated AES block-size error.
+        """
         if len(raw) < 7 or raw[0] != HEADER[0] or raw[1] != HEADER[1]:
             raise ValueError(f"Invalid TTLock frame: {raw.hex()}")
         proto = raw[2]
+        header_len = V3_HEADER_LEN if proto >= 5 else LEGACY_HEADER_LEN
+        if len(raw) < header_len:
+            raise ValueError(f"Truncated TTLock frame header: {raw.hex()}")
+        length = raw[V3_LENGTH_INDEX if proto >= 5 else LEGACY_LENGTH_INDEX]
+        if len(raw) < header_len + length:
+            raise ValueError(
+                f"Truncated TTLock frame: declared {length} payload bytes, "
+                f"got {len(raw) - header_len}"
+            )
+        data = raw[header_len : header_len + length]
         if proto >= 5:
             sub_version = raw[3]
             scene = raw[4]
@@ -125,8 +149,6 @@ class Frame:
             sub_org = (raw[7] << 8) | raw[8]
             command = raw[9]
             encrypt = raw[10]
-            length = raw[11]
-            data = raw[12 : 12 + length]
         else:
             sub_version = 0
             scene = 0
@@ -134,8 +156,6 @@ class Frame:
             sub_org = 0
             command = raw[3]
             encrypt = raw[4]
-            length = raw[5]
-            data = raw[6 : 6 + length]
         return cls(proto, sub_version, scene, group_id, sub_org, command, encrypt, data)
 
     def decrypt_data(self, key: bytes) -> bytes:

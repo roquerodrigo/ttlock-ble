@@ -49,6 +49,16 @@ class TestFrame:
         assert f2.data == b"hello"
         assert f2.protocol_type == 5
 
+    def test_parse_rejects_payload_shorter_than_declared(self):
+        wire = Frame.for_lock(_v3(), 0x55, b"0123456789", encrypt=ENCRYPT_PLAIN).build()
+        body = wire[: -len(TRAILER)]
+        with pytest.raises(ValueError, match="declared 10 payload bytes"):
+            Frame.parse(body[:-4])
+
+    def test_parse_rejects_truncated_header(self):
+        with pytest.raises(ValueError, match="Truncated TTLock frame header"):
+            Frame.parse(HEADER + bytes([5, 3, 2, 0, 1, 0, 1]))
+
     def test_aes_encrypt_uses_app_command_marker(self):
         key = bytes(range(16))
         f = Frame.for_lock(_v3(), 0x55, b"x" * 17).encrypt_data(key)
@@ -84,6 +94,47 @@ class TestReassembler:
         ra = FrameReassembler()
         out = ra.feed(b"\xff\xff" + valid)
         assert len(out) == 1
+
+    def test_payload_containing_the_terminator_is_not_truncated(self):
+        # Captured from an LL609 (DLock-XP V3) answering CMD_GET_OPERATE_LOG.
+        # The ciphertext starts 73 0D 0A, so delimiting on CRLF used to cut
+        # the frame after one payload byte and the failure surfaced later as
+        # an AES block-size error.
+        wire = bytes.fromhex(
+            "7f5a0503020001000154aa20"
+            "730d0ac33249f9d9c290485f6b8f6b347e75bfa1177f9069aea203ac"
+            "a4956752f7"
+            "0d0a"
+        )
+        out = FrameReassembler().feed(wire)
+        assert len(out) == 1
+        assert out[0].command == 0x54
+        assert len(out[0].data) == 0x20
+
+    def test_terminator_inside_payload_split_across_chunks(self):
+        payload = b"\x01" + TRAILER + b"\x02" * 13
+        wire = Frame.for_lock(_v3(), 0x47, payload, encrypt=ENCRYPT_PLAIN).build()
+        ra = FrameReassembler()
+        assert ra.feed(wire[:14]) == []
+        out = ra.feed(wire[14:])
+        assert len(out) == 1
+        assert out[0].data == payload
+
+    def test_header_bytes_inside_payload_do_not_start_a_frame(self):
+        payload = HEADER + b"\x05" * 14
+        wire = Frame.for_lock(_v3(), 0x55, payload, encrypt=ENCRYPT_PLAIN).build()
+        out = FrameReassembler().feed(wire)
+        assert len(out) == 1
+        assert out[0].data == payload
+
+    def test_declared_length_without_terminator_resyncs(self):
+        valid = Frame.for_lock(_v3(), 0x55, b"ok", encrypt=ENCRYPT_PLAIN).build()
+        # Header bytes reached by mis-syncing: the declared length of 2 puts
+        # the terminator where two non-terminator bytes sit.
+        bogus = HEADER + bytes([5, 3, 2, 0, 1, 0, 1, 0x99, 0xAA, 0x02])
+        bogus += b"\x11\x22" + b"\x33" + b"\x44\x55"
+        out = FrameReassembler().feed(bogus + valid)
+        assert [f.data for f in out] == [b"ok"]
 
 
 class TestCommands:
