@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from ..constants import LockState, ResponseStatus
+from ..constants import LockState, ResponseStatus
 
 _COMM_SEARCH_BICYCLE_STATUS = 0x14
 _STATE_PUSH_LEN = 3
@@ -55,8 +53,6 @@ class LockEvent:
         Unknown `status` bytes are kept as the raw int — the enum is a
         narrowing helper, not a validator.
         """
-        from ..constants import LockState, ResponseStatus
-
         try:
             status_value: ResponseStatus | int = ResponseStatus(status)
         except ValueError:

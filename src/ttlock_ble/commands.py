@@ -9,8 +9,15 @@ from __future__ import annotations
 
 import datetime as dt
 
-from .constants.lock_state import LockState
-from .constants.response_status import ResponseStatus
+from .constants import (
+    AutoLockOperate,
+    KeyboardPwdType,
+    LockState,
+    LogOperate,
+    PwdOperateType,
+    ResponseStatus,
+)
+from .models import LogEntry
 
 CMD_SEARCH_DEVICE_FEATURE = 0x01
 CMD_INIT_PASSWORDS = 0x31
@@ -247,8 +254,6 @@ def parse_state_battery(plaintext: bytes) -> int | None:
 
 def payload_auto_lock_search() -> bytes:
     """Query the lock's current auto-lock delay (single op-type byte = SEARCH=0x01)."""
-    from .constants import AutoLockOperate
-
     return bytes([AutoLockOperate.SEARCH])
 
 
@@ -257,8 +262,6 @@ def payload_auto_lock_set(seconds: int) -> bytes:
 
     `seconds=0` disables auto-lock; otherwise must fit in a UInt16 (max ~18h).
     """
-    from .constants import AutoLockOperate
-
     if not 0 <= seconds <= 0xFFFF:
         raise ValueError(f"auto-lock seconds out of range [0, 65535]: {seconds}")
     return bytes([AutoLockOperate.MODIFY, (seconds >> 8) & 0xFF, seconds & 0xFF])
@@ -310,8 +313,6 @@ def payload_passcode_add(
     Permanent passcodes carry both 5-byte windows; non-permanent ones omit
     the trailing end-date block (mirrors `ManageKeyboardPasswordCommand.buildAdd`).
     """
-    from .constants import KeyboardPwdType, PwdOperateType
-
     _check_passcode(code)
     out = bytearray()
     out.append(PwdOperateType.ADD)
@@ -326,8 +327,6 @@ def payload_passcode_add(
 
 def payload_passcode_delete(pwd_type: int, code: str) -> bytes:
     """COMM_MANAGE_KEYBOARD_PASSWORD with op=REMOVE_ONE (3)."""
-    from .constants import PwdOperateType
-
     _check_passcode(code)
     out = bytearray()
     out.append(PwdOperateType.REMOVE_ONE)
@@ -339,8 +338,6 @@ def payload_passcode_delete(pwd_type: int, code: str) -> bytes:
 
 def payload_passcode_clear() -> bytes:
     """COMM_MANAGE_KEYBOARD_PASSWORD with op=CLEAR (1) — wipes all keypad codes."""
-    from .constants import PwdOperateType
-
     return bytes([PwdOperateType.CLEAR])
 
 
@@ -359,17 +356,13 @@ def payload_operate_log_request(sequence: int = 0xFFFF) -> bytes:
     return sequence.to_bytes(2, "big")
 
 
-def parse_operate_log_response(plaintext: bytes) -> tuple[list[object], int]:
+def parse_operate_log_response(plaintext: bytes) -> tuple[list[LogEntry], int]:
     """Decode COMM_GET_OPERATE_LOG into `(entries, last_sequence)`.
 
-    Returns the list of `LogEntry`-shaped tuples and the last sequence
-    number observed (caller passes this back via `payload_operate_log_request`
+    Returns the decoded `LogEntry` list and the last sequence number
+    observed (caller passes this back via `payload_operate_log_request`
     to fetch the next page). Returns an empty list when the lock has no
     new entries.
-
-    The actual `LogEntry` dataclass lives in `ttlock_ble.models`; this
-    function is structured to keep `commands.py` free of imports from
-    higher layers, so it returns `list[object]` of `LogEntry` instances.
     """
     _cmd_echo, status, data = parse_response_status(plaintext)
     if status != RESPONSE_SUCCESS or len(data) < 2:
@@ -378,7 +371,7 @@ def parse_operate_log_response(plaintext: bytes) -> tuple[list[object], int]:
     if total_len == 0:
         return [], 0
     sequence = int.from_bytes(data[2:4], "big")
-    entries: list[object] = []
+    entries: list[LogEntry] = []
     idx = 4
     while idx < len(data):
         rec_len = data[idx]
@@ -483,16 +476,13 @@ def _decode_log_record(  # noqa: PLR0913, PLR0917, PLR0912, PLR0915  -- flat swi
     data: bytes,
     idx: int,
     rec_end: int,
-) -> object:
+) -> LogEntry:
     """Build a `LogEntry` from one record body.
 
     Dispatch is a port of the switch in `CommandUtil_V3.parseOperateLog`
     (TTLock Android SDK). Each case interprets the variable-length tail
     that follows the fixed header (`record_type` + 6-byte date + battery).
     """
-    from .constants import LogOperate
-    from .models import LogEntry
-
     payload = data[idx:rec_end]
     uid: int | None = None
     record_id: int | None = None

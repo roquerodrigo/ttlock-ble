@@ -428,9 +428,7 @@ class TTLockClient:
                 log.info("Fetched %d log entr(ies), last_sequence=%d", len(page), last_seq)
                 if not page:
                     break
-                new_entries = [
-                    e for e in page if isinstance(e, LogEntry) and e.record_number not in seen
-                ]
+                new_entries = [e for e in page if e.record_number not in seen]
                 if not new_entries:
                     break
                 for entry in new_entries:
@@ -507,7 +505,7 @@ class TTLockClient:
             suffix_bytes,
         )
         match: list[BLEDevice] = []
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         deadline = loop.time() + self.scan_timeout
 
         # bleak types AdvertisementData.platform_data as tuple[Any, ...], so the
