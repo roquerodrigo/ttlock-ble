@@ -510,7 +510,12 @@ class TTLockClient:
         loop = asyncio.get_event_loop()
         deadline = loop.time() + self.scan_timeout
 
-        def _on_detection(dev: BLEDevice, adv: AdvertisementData) -> None:
+        # bleak types AdvertisementData.platform_data as tuple[Any, ...], so the
+        # callback signature carries an Any this side cannot annotate away.
+        def _on_detection(  # type: ignore[explicit-any]
+            dev: BLEDevice,
+            adv: AdvertisementData,
+        ) -> None:
             name = dev.name or adv.local_name or ""
             mac_match = dev.address.upper() == target or suffix_bytes in name.lower()
             if mac_match and not match:

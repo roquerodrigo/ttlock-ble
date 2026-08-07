@@ -77,11 +77,13 @@ lint = [
 [tool.uv]
 default-groups = ["dev", "lint"]
 
-# Lint rule choices are based on https://github.com/home-assistant/core/blob/dev/pyproject.toml
+# Every rule ruff knows is enabled; each exemption below states why it is
+# unavoidable here and is scoped to the files that actually need it.
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+src = ["src", "tests", "scripts"]
 
 [tool.ruff.format]
 exclude = ["*.md"] # ruff 0.16 formats Python blocks in Markdown; docs keep their own layout
@@ -92,59 +94,49 @@ select = [
 ]
 
 ignore = [
-    "ANN401", # typing.Any disallowed — not always avoidable at framework boundaries
-    "D203",   # no-blank-line-before-class (incompatible with formatter)
-    "D212",   # multi-line-summary-first-line (incompatible with formatter)
-    "D213",   # mutually exclusive with D212; we pick D212-style summaries
-    "D107",   # __init__ docstring covered by class docstring
-    "COM812", # incompatible with formatter
-    "ISC001", # incompatible with formatter
-    "EM101",  # raise(str) is fine — format helps grep, no string variable needed
-    "EM102",  # same for f-strings inside raise
-    "TRY003", # long exception messages are OK when the message carries diagnostics
-    "TID252", # relative imports between same-package siblings are intentional
-    "PLR2004", # magic byte values are the protocol — extracting them all hurts readability
+    "COM812",  # incompatible with the formatter
+    "CPY001",  # copyright headers are not used in this project
+    "D203",    # no-blank-line-before-class (incompatible with the formatter)
+    "D213",    # mutually exclusive with D212; we pick D212-style summaries
+    "EM101",   # raise(str) is fine — inlining helps grep, no message variable needed
+    "EM102",   # same for f-strings inside raise
+    "ISC001",  # incompatible with the formatter
     "PLC0415", # lazy imports break a couple of circular deps; intentional
-    "FBT003",  # boolean positional in typer.Option calls is the framework idiom
-    "S101",    # we keep asserts as type-narrowing aids for mypy; cheap in CPython
-    "CPY001", # copyright headers are not used in this project
+    "PLR2004", # magic byte values are the protocol — extracting them all hurts readability
+    "TID252",  # relative imports between same-package siblings are the house style
+    "TRY003",  # long exception messages are OK when the message carries diagnostics
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
-    "S101",     # asserts are the point of tests
-    "S105",     # tests carry expected passcode/secret values inline
-    "SLF001",   # tests intentionally exercise private members
-    "ARG001",   # unused fixtures are normal
-    "PLR2004",  # magic numbers in tests are fine
-    "D",        # docstrings not required in tests
     "ANN",      # type annotations not required in tests
+    "ARG001",   # unused fixtures are normal
+    "D",        # docstrings not required in tests
     "ERA001",   # protocol-byte-layout comments are valuable in payload tests
-    "PT011",    # pytest.raises bare ValueError is fine when message isn't tested
+    "PT011",    # pytest.raises bare ValueError is fine when the message isn't tested
     "PT018",    # composite assertion is normal in tests
-    "PLC0415",  # local imports inside test methods are normal
-    "PYI034",   # Self return type isn't relevant in test fixtures
+    "S101",     # asserts are the point of tests
+    "S105",     # tests carry expected passcode values inline
+    "SLF001",   # tests intentionally exercise private members
 ]
 "src/ttlock_ble/cli.py" = [
-    "D",        # typer commands self-document via help=
-    "BLE001",   # CLI handlers convert any error into typer.Exit
     "FBT001",   # boolean-positional in typer commands is the framework idiom
-    "FBT002",
+    "FBT003",   # so is the boolean positional passed to typer.Option
+]
+"src/ttlock_ble/client.py" = [
+    "S101",     # asserts narrow Optional GATT handles for mypy after connect()
 ]
 "src/ttlock_ble/models/*.py" = [
     "N815",     # cloud-facing dataclass fields keep upstream camelCase
 ]
 "scripts/**" = [
-    "T201",     # operator scripts print their output to the terminal
     "D",        # one-shot CLI helpers self-document via argparse help
+    "T201",     # operator scripts print their output to the terminal
     "TC001",    # runtime-imported types are clearer than TYPE_CHECKING gymnastics
 ]
 
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false
-
-[tool.ruff.lint.pyupgrade]
-keep-runtime-typing = true
 
 [tool.ruff.lint.mccabe]
 max-complexity = 25
@@ -153,21 +145,11 @@ max-complexity = 25
 files = ["src"]
 python_version = "3.12"
 strict = true
+disallow_any_explicit = true
 explicit_package_bases = true
 ignore_missing_imports = true
 follow_imports = "silent"
 warn_unreachable = true
-
-[[tool.mypy.overrides]]
-module = "tests.*"
-disallow_untyped_defs = false
-check_untyped_defs = false
-
-[[tool.mypy.overrides]]
-# bleak callback signatures resolve to `Any` without bundled stubs;
-# silence the explicit-any complaints they trigger here.
-module = "ttlock_ble.client"
-disable_error_code = ["explicit-any"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
