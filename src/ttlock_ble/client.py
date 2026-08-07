@@ -6,25 +6,22 @@ import asyncio
 import contextlib
 import datetime as dt
 import logging
-import time
 from typing import TYPE_CHECKING, Self
 
-from bleak import BleakClient, BleakScanner
-from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
-
 from . import commands as cmd
+from .ble import BleTransport, KeepAlive
+from .ble.constants import DEFAULT_KEEP_ALIVE_SECONDS
 from .constants import KeyboardPwdType, LockState
 from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError
 from .models import LockEvent, LogEntry
-from .protocol import Frame, FrameReassembler
+from .protocol import Frame
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from bleak.backends.characteristic import BleakGATTCharacteristic
+    from bleak import BleakClient
     from bleak.backends.device import BLEDevice
-    from bleak.backends.scanner import AdvertisementData
 
     from .models import VirtualKey
 
@@ -32,27 +29,6 @@ if TYPE_CHECKING:
     EventListener = Callable[[LockEvent], None]
 
 log: logging.Logger = logging.getLogger("ttlock_ble.client")
-
-TTL_SERVICE = "00001910-0000-1000-8000-00805f9b34fb"
-TTL_WRITE = "0000fff2-0000-1000-8000-00805f9b34fb"
-TTL_NOTIFY = "0000fff4-0000-1000-8000-00805f9b34fb"
-
-BONG_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca1e"
-BONG_WRITE = "6e400002-b5a3-f393-e0a9-e50e24dcca1e"
-BONG_NOTIFY = "6e400003-b5a3-f393-e0a9-e50e24dcca1e"
-
-SCIENER_SERVICE = "73631912-6965-6e65-7269-736669727374"
-SCIENER_CHAR = "73632b12-6965-6e65-7269-736669727374"
-
-BATTERY_CHAR = "00002a19-0000-1000-8000-00805f9b34fb"
-
-_BLE_WRITE_CHUNK = 20
-_DEFAULT_RECV_TIMEOUT = 6.0
-_CONNECT_RETRIES = 3
-_CONNECT_RETRY_DELAY = 1.0
-_POST_NOTIFY_SETTLE = 0.5
-_DEFAULT_KEEP_ALIVE_SECONDS = 25.0
-_KEEP_ALIVE_INTERVAL = 2.0
 
 
 class TTLockClient:
@@ -66,6 +42,11 @@ class TTLockClient:
     The client picks the right GATT service, runs the CHECK_USER_TIME
     handshake to obtain `psFromLock`, then issues the actual UNLOCK /
     LOCK / state command.
+
+    The BLE link itself lives in `BleTransport`: this class owns the AES
+    key, the command vocabulary and the event listeners, and hands the
+    transport the two callbacks that need the key — how to tell a reply
+    from a push, and what to do with a push.
     """
 
     def __init__(
@@ -75,7 +56,7 @@ class TTLockClient:
         device: BLEDevice | None = None,
         scan_timeout: float = 25.0,
         disconnected_callback: DisconnectedCallback | None = None,
-        keep_alive_after_command: float = _DEFAULT_KEEP_ALIVE_SECONDS,
+        keep_alive_after_command: float = DEFAULT_KEEP_ALIVE_SECONDS,
     ) -> None:
         """Configure the client; no BLE I/O happens until `connect()`.
 
@@ -90,20 +71,24 @@ class TTLockClient:
         to 0 to disable.
         """
         self.key = key
-        self.scan_timeout = scan_timeout
         self._aes_key: bytes = hex_key_to_bytes(key.aesKeyStr)
-        self._device: BLEDevice | None = device
-        self._disconnected_callback = disconnected_callback
-        self._client: BleakClient | None = None
-        self._write_char: BleakGATTCharacteristic | None = None
-        self._notify_char: BleakGATTCharacteristic | None = None
-        self._reassembler = FrameReassembler()
-        self._inbox: asyncio.Queue[Frame] = asyncio.Queue()
-        self._waiting_for_response = 0
         self._event_listeners: list[EventListener] = []
         self._command_lock = asyncio.Lock()
-        self._keep_alive_seconds = keep_alive_after_command
-        self._keep_alive_task: asyncio.Task[None] | None = None
+        self._transport = BleTransport(
+            address=key.lockMac,
+            display_name=key.lockAlias or key.lockName or key.lockMac,
+            on_push_frame=self._dispatch_event,
+            is_response=self._answers,
+            device=device,
+            scan_timeout=scan_timeout,
+            disconnected_callback=disconnected_callback,
+        )
+        self._keep_alive = KeepAlive(
+            window_seconds=keep_alive_after_command,
+            poke=self._poke_lock,
+            is_connected=lambda: self._transport.is_connected,
+            lock_label=key.lockMac,
+        )
 
     @classmethod
     def from_ble_device(
@@ -112,7 +97,7 @@ class TTLockClient:
         key: VirtualKey,
         *,
         disconnected_callback: DisconnectedCallback | None = None,
-        keep_alive_after_command: float = _DEFAULT_KEEP_ALIVE_SECONDS,
+        keep_alive_after_command: float = DEFAULT_KEEP_ALIVE_SECONDS,
     ) -> TTLockClient:
         """Build a client around a `BLEDevice` already resolved by the caller.
 
@@ -130,9 +115,18 @@ class TTLockClient:
         )
 
     @property
+    def scan_timeout(self) -> float:
+        """Seconds the client scans for the lock when no `BLEDevice` was supplied."""
+        return self._transport.scan_timeout
+
+    @scan_timeout.setter
+    def scan_timeout(self, seconds: float) -> None:
+        self._transport.scan_timeout = seconds
+
+    @property
     def is_connected(self) -> bool:
         """True iff a BLE connection is currently open."""
-        return self._client is not None and self._client.is_connected
+        return self._transport.is_connected
 
     async def __aenter__(self) -> Self:
         """Connect on entry; disconnect on exit."""
@@ -144,55 +138,13 @@ class TTLockClient:
         await self.disconnect()
 
     async def connect(self) -> None:
-        """Resolve the BLE device (if not supplied), GATT-connect, start notify.
-
-        Uses `bleak_retry_connector.establish_connection` so the connection
-        cooperates with other integrations sharing the BLE adapter and
-        survives transient failures (essential under Home Assistant and
-        ESPHome BLE proxies).
-        """
-        if self.is_connected:
-            return
-        if self._device is None:
-            self._device = await self._find_device()
-        if self._device is None:
-            raise TTLockError(
-                f"Failed to find lock {self.key.lockMac} via BLE scan: "
-                "wake the lock by touching the keypad and try again"
-            )
-        try:
-            self._client = await establish_connection(
-                BleakClientWithServiceCache,
-                self._device,
-                self.key.lockAlias or self.key.lockName or self.key.lockMac,
-                disconnected_callback=self._disconnected_callback,
-                use_services_cache=True,
-                max_attempts=_CONNECT_RETRIES,
-            )
-        except Exception as exc:
-            raise TTLockError(f"Failed to connect to lock over BLE: {exc}") from exc
-        await self._discover_chars()
-        assert self._notify_char is not None
-        await self._client.start_notify(self._notify_char, self._on_notify)
-        await asyncio.sleep(_POST_NOTIFY_SETTLE)
-        await self._wake_battery_read()
-        log.info(
-            "Connected to %s (%s)",
-            self.key.lockAlias or self.key.lockName,
-            self.key.lockMac,
-        )
+        """Resolve the BLE device (if not supplied), GATT-connect, start notify."""
+        await self._transport.connect()
 
     async def disconnect(self) -> None:
-        """Stop notifications and tear down the BLE connection."""
-        await self._stop_keep_alive()
-        if self._client is not None and self._client.is_connected:
-            try:
-                if self._notify_char is not None:
-                    await self._client.stop_notify(self._notify_char)
-            except Exception:  # teardown swallows whatever bleak raises
-                log.debug("stop_notify failed; ignoring on teardown", exc_info=True)
-            await self._client.disconnect()
-        self._client = None
+        """Stop the keep-alive window, then tear down the BLE connection."""
+        await self._keep_alive.stop()
+        await self._transport.disconnect()
 
     async def unlock(self) -> None:
         """Unlock the door (status=SUCCESS or raises).
@@ -203,14 +155,14 @@ class TTLockClient:
         async with self._command_lock:
             ps = await self._check_user_time()
             await self._control_lock(cmd.CMD_UNLOCK, ps, "unlock")
-        self._restart_keep_alive()
+        self._keep_alive.restart()
 
     async def lock(self) -> None:
         """Re-lock the door (keep-alive applies, same as `unlock`)."""
         async with self._command_lock:
             ps = await self._check_user_time()
             await self._control_lock(cmd.CMD_LOCK, ps, "lock")
-        self._restart_keep_alive()
+        self._keep_alive.restart()
 
     async def calibrate_time(self, when: dt.datetime | None = None) -> None:
         """Push the current wall-clock time to the lock's RTC.
@@ -221,12 +173,9 @@ class TTLockClient:
         typically call this once on connect and then daily.
         """
         async with self._command_lock:
-            frame = Frame.for_lock(
-                self.key.lockVersion,
-                cmd.CMD_TIME_CALIBRATE,
-                cmd.payload_time_calibrate(when),
-            ).encrypt_data(self._aes_key)
-            resp = await self._exchange(frame)
+            resp = await self._transport.exchange(
+                self._frame(cmd.CMD_TIME_CALIBRATE, cmd.payload_time_calibrate(when))
+            )
             plain = self._decrypt_response(resp, "calibrate_time")
             echo, status, data = self._parse_response_envelope(plain, "calibrate_time")
             log.info(
@@ -250,12 +199,9 @@ class TTLockClient:
         recalibrate; `sync_time` combines both steps.
         """
         async with self._command_lock:
-            frame = Frame.for_lock(
-                self.key.lockVersion,
-                cmd.CMD_GET_LOCK_TIME,
-                cmd.payload_get_lock_time(),
-            ).encrypt_data(self._aes_key)
-            resp = await self._exchange(frame)
+            resp = await self._transport.exchange(
+                self._frame(cmd.CMD_GET_LOCK_TIME, cmd.payload_get_lock_time())
+            )
             plain = self._decrypt_response(resp, "get_lock_time")
             try:
                 lock_time = cmd.parse_get_lock_time_response(plain)
@@ -315,12 +261,9 @@ class TTLockClient:
         Doesn't need CHECK_USER_TIME — search-bicycle-status is unauthenticated.
         """
         async with self._command_lock:
-            frame = Frame.for_lock(
-                self.key.lockVersion,
-                cmd.CMD_QUERY_STATE,
-                cmd.payload_query_state(),
-            ).encrypt_data(self._aes_key)
-            resp = await self._exchange(frame)
+            resp = await self._transport.exchange(
+                self._frame(cmd.CMD_QUERY_STATE, cmd.payload_query_state())
+            )
             plain = self._decrypt_response(resp, "query_state")
             log.debug("state response plaintext: %s", plain.hex())
             try:
@@ -413,12 +356,9 @@ class TTLockClient:
             seen: set[int] = set()
             next_seq = from_sequence
             while True:
-                frame = Frame.for_lock(
-                    self.key.lockVersion,
-                    cmd.CMD_GET_OPERATE_LOG,
-                    cmd.payload_operate_log_request(next_seq),
-                ).encrypt_data(self._aes_key)
-                resp = await self._exchange(frame)
+                resp = await self._transport.exchange(
+                    self._frame(cmd.CMD_GET_OPERATE_LOG, cmd.payload_operate_log_request(next_seq))
+                )
                 plain = self._decrypt_response(resp, "operate_log")
                 log.debug("operate_log response plaintext: %s", plain.hex())
                 try:
@@ -441,138 +381,16 @@ class TTLockClient:
                 next_seq = last_seq
             return all_entries
 
-    def _restart_keep_alive(self) -> None:
-        """Schedule a fresh keep-alive window. Cancels any prior one."""
-        if self._keep_alive_seconds <= 0:
-            return
-        if self._keep_alive_task is not None and not self._keep_alive_task.done():
-            self._keep_alive_task.cancel()
-        self._keep_alive_task = asyncio.create_task(
-            self._keep_alive_loop(),
-            name=f"ttlock_ble.keepalive.{self.key.lockMac}",
-        )
+    def _frame(self, command: int, payload: bytes) -> Frame:
+        """Build and encrypt one command frame for this lock's protocol version."""
+        return Frame.for_lock(self.key.lockVersion, command, payload).encrypt_data(self._aes_key)
 
-    async def _stop_keep_alive(self) -> None:
-        """Cancel the keep-alive task (called from `disconnect()`)."""
-        if self._keep_alive_task is None or self._keep_alive_task.done():
-            return
-        self._keep_alive_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await self._keep_alive_task
-        self._keep_alive_task = None
-
-    async def _keep_alive_loop(self) -> None:
-        """Periodically poke the lock to keep the BLE link alive.
-
-        The lock idles us out within a few seconds of silence. A
-        lightweight `query_state` every `_KEEP_ALIVE_INTERVAL` seconds
-        prevents that drop, so push notifications keep flowing to
-        registered event listeners for the whole window.
-        """
-        deadline = time.monotonic() + self._keep_alive_seconds
-        while time.monotonic() < deadline and self.is_connected:
-            await asyncio.sleep(_KEEP_ALIVE_INTERVAL)
-            if not self.is_connected:
-                return  # type: ignore[unreachable]
-            try:
-                async with self._command_lock:
-                    frame = Frame.for_lock(
-                        self.key.lockVersion,
-                        cmd.CMD_QUERY_STATE,
-                        cmd.payload_query_state(),
-                    ).encrypt_data(self._aes_key)
-                    await self._exchange(frame)
-            except TTLockError as exc:
-                log.debug("keep-alive query failed for %s: %s", self.key.lockMac, exc)
-                return
-
-    async def _find_device(self) -> BLEDevice | None:
-        """Locate the lock in a way that works on macOS (which hides MACs).
-
-        Match priority:
-          1. exact MAC (works on Linux/Windows), then
-          2. the last 3 octets of the MAC appearing as a hex suffix in the
-             device's advertised name (`S534_1d22bd` for `…22:1D`).
-
-        Falls back to `None` rather than connecting to a neighbour's lock.
-        """
-        target = self.key.lockMac.upper()
-        suffix_bytes = bytes.fromhex(target.replace(":", ""))[-3:][::-1].hex()
-        log.info(
-            "Scanning %.0fs for %s (MAC suffix '%s')…",
-            self.scan_timeout,
-            target,
-            suffix_bytes,
-        )
-        match: list[BLEDevice] = []
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + self.scan_timeout
-
-        # bleak types AdvertisementData.platform_data as tuple[Any, ...], so the
-        # callback signature carries an Any this side cannot annotate away.
-        def _on_detection(  # type: ignore[explicit-any]
-            dev: BLEDevice,
-            adv: AdvertisementData,
-        ) -> None:
-            name = dev.name or adv.local_name or ""
-            mac_match = dev.address.upper() == target or suffix_bytes in name.lower()
-            if mac_match and not match:
-                log.info("Lock found: %s rssi=%d", name or dev.address, adv.rssi)
-                match.append(dev)
-
-        async with BleakScanner(detection_callback=_on_detection):
-            # Polling-with-sleep on purpose: we want to break as soon as
-            # `_on_detection` fires, but bleak's scanner doesn't expose an
-            # asyncio.Event for that — the callback runs synchronously.
-            while not match and loop.time() < deadline:  # noqa: ASYNC110
-                await asyncio.sleep(0.5)
-        return match[0] if match else None
-
-    async def _discover_chars(self) -> None:
-        """Pick the GATT service+chars used by the firmware on this lock."""
-        assert self._client is not None
-        services = self._client.services
-        for svc_uuid, w_uuid, n_uuid in (
-            (TTL_SERVICE, TTL_WRITE, TTL_NOTIFY),
-            (BONG_SERVICE, BONG_WRITE, BONG_NOTIFY),
-        ):
-            svc = services.get_service(svc_uuid)
-            if svc is None:
-                continue
-            write_char = svc.get_characteristic(w_uuid)
-            notify_char = svc.get_characteristic(n_uuid)
-            if write_char is not None and notify_char is not None:
-                self._write_char = write_char
-                self._notify_char = notify_char
-                log.info("Using GATT service %s", svc_uuid)
-                return
-        raise TTLockError(
-            "Failed to discover TTLock GATT service: lock exposed neither "
-            f"{TTL_SERVICE} nor {BONG_SERVICE}"
-        )
-
-    async def _wake_battery_read(self) -> None:
-        """Read the standard battery characteristic to nudge the BLE stack awake.
-
-        Some firmware revisions only enable the notify pipeline after the
-        central has issued at least one ATT read. The reported value is
-        unreliable on this firmware (always 100%); we use the in-band
-        protocol value from `query_state()` instead.
-        """
-        assert self._client is not None
-        try:
-            data = await self._client.read_gatt_char(BATTERY_CHAR)
-            log.debug("Wake-up battery read: %d", data[0] if data else -1)
-        except Exception:  # non-critical wake nudge
-            log.debug("Battery read skipped", exc_info=True)
-
-    def _on_notify(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
-        log.debug("RX %s", bytes(data).hex())
-        for frame in self._reassembler.feed(bytes(data)):
-            if self._waiting_for_response > 0:
-                self._inbox.put_nowait(frame)
-            else:
-                self._dispatch_event(frame)
+    async def _poke_lock(self) -> None:
+        """Cheapest round-trip that resets the lock's idle timer (keep-alive window)."""
+        async with self._command_lock:
+            await self._transport.exchange(
+                self._frame(cmd.CMD_QUERY_STATE, cmd.payload_query_state())
+            )
 
     def _dispatch_event(self, frame: Frame) -> None:
         if not self._event_listeners:
@@ -590,63 +408,6 @@ class TTLockClient:
                 listener(event)
             except Exception:
                 log.exception("Lock event listener raised; continuing")
-
-    async def _send(self, frame: Frame) -> None:
-        assert self._client is not None
-        assert self._write_char is not None
-        wire = frame.build()
-        log.debug("TX %s (%d bytes)", wire.hex(), len(wire))
-        for i in range(0, len(wire), _BLE_WRITE_CHUNK):
-            await self._client.write_gatt_char(
-                self._write_char,
-                wire[i : i + _BLE_WRITE_CHUNK],
-                response=False,
-            )
-
-    async def _recv(self, *, timeout: float = _DEFAULT_RECV_TIMEOUT) -> Frame:  # noqa: ASYNC109  -- timeout is the whole point of this helper
-        return await asyncio.wait_for(self._inbox.get(), timeout=timeout)
-
-    async def _exchange(self, frame: Frame, *, timeout: float = _DEFAULT_RECV_TIMEOUT) -> Frame:  # noqa: ASYNC109  -- forwarded to _recv
-        """Send `frame` and return the lock's reply to *that* command.
-
-        The lock pushes unsolicited frames on the same characteristic,
-        and one landing inside this window used to be handed back as the
-        response: the parsers do not check the echoed opcode, so a
-        15-byte log push read as a status reply yields whatever its
-        second byte happens to be — for a manual key that is the uid's
-        high byte, zero, decoding as LOCKED while the door is open. It
-        also left the real reply in the inbox, desynchronising every
-        later exchange by one frame.
-
-        Frames whose echoed opcode is not the one we sent are therefore
-        routed to the event listeners, where they belong, and the wait
-        continues on the original deadline rather than restarting.
-        """
-        # Inbox-vs-event-listener routing in `_on_notify` keys off this flag,
-        # so increment around the entire send-then-receive window.
-        self._waiting_for_response += 1
-        try:
-            await self._send(frame)
-            loop = asyncio.get_running_loop()
-            deadline = loop.time() + timeout
-            msg = f"Timed out waiting {timeout:.1f}s for the lock to reply"
-            while True:
-                remaining = deadline - loop.time()
-                if remaining <= 0:
-                    raise TTLockError(msg)
-                try:
-                    candidate = await self._recv(timeout=remaining)
-                except TimeoutError as exc:
-                    raise TTLockError(msg) from exc
-                if self._answers(candidate, frame.command):
-                    return candidate
-                log.debug(
-                    "Push frame arrived while awaiting 0x%02x; dispatching it",
-                    frame.command,
-                )
-                self._dispatch_event(candidate)
-        finally:
-            self._waiting_for_response -= 1
 
     def _answers(self, candidate: Frame, expected_command: int) -> bool:
         """Report whether `candidate` is the lock's reply to `expected_command`.
@@ -676,10 +437,10 @@ class TTLockClient:
     def _decrypt_response(self, resp: Frame, label: str) -> bytes:
         """Decrypt a command reply, folding decode failures into `TTLockError`.
 
-        `_exchange` deliberately passes undecodable frames through to the
-        caller, so every command-level decrypt can face garbage bytes; the
-        public contract is that `TTLockClient` raises `TTLockError`, never a
-        raw `ValueError` from the AES layer.
+        `BleTransport.exchange` deliberately passes undecodable frames through
+        to the caller, so every command-level decrypt can face garbage bytes;
+        the public contract is that `TTLockClient` raises `TTLockError`, never
+        a raw `ValueError` from the AES layer.
         """
         try:
             return aes_decrypt(resp.data, self._aes_key)
@@ -695,11 +456,9 @@ class TTLockClient:
 
     async def _check_user_time(self) -> int:
         """Send CHECK_USER_TIME and return the lock's `psFromLock` token."""
-        payload = cmd.payload_check_user_time()
-        frame = Frame.for_lock(self.key.lockVersion, cmd.CMD_CHECK_USER_TIME, payload).encrypt_data(
-            self._aes_key
+        resp = await self._transport.exchange(
+            self._frame(cmd.CMD_CHECK_USER_TIME, cmd.payload_check_user_time())
         )
-        resp = await self._exchange(frame)
         log.debug(
             "check_user_time response: cmd=0x%02x encrypt=0x%02x data=%s",
             resp.command,
@@ -715,10 +474,7 @@ class TTLockClient:
         return ps
 
     async def _auto_lock_exchange(self, payload: bytes) -> tuple[int, int | None]:
-        frame = Frame.for_lock(
-            self.key.lockVersion, cmd.CMD_AUTO_LOCK_MANAGE, payload
-        ).encrypt_data(self._aes_key)
-        resp = await self._exchange(frame)
+        resp = await self._transport.exchange(self._frame(cmd.CMD_AUTO_LOCK_MANAGE, payload))
         plain = self._decrypt_response(resp, "auto_lock")
         log.debug("auto_lock response plaintext: %s", plain.hex())
         try:
@@ -727,32 +483,21 @@ class TTLockClient:
             raise TTLockError(f"Failed to parse auto_lock response: {error}") from error
 
     async def _keyboard_password_exchange(self, payload: bytes, label: str) -> None:
-        frame = Frame.for_lock(
-            self.key.lockVersion, cmd.CMD_MANAGE_KEYBOARD_PASSWORD, payload
-        ).encrypt_data(self._aes_key)
-        resp = await self._exchange(frame)
-        plain = self._decrypt_response(resp, label)
-        echo, status, data = self._parse_response_envelope(plain, label)
-        log.info(
-            "%s response: cmd_echo=0x%02x status=%d data=%s",
-            label,
-            echo,
-            status,
-            data.hex(),
+        resp = await self._transport.exchange(
+            self._frame(cmd.CMD_MANAGE_KEYBOARD_PASSWORD, payload)
         )
-        if status != cmd.RESPONSE_SUCCESS:
-            raise TTLockError(
-                f"Failed to {label}: lock rejected with status={status:#x}, error={data.hex()}"
-            )
+        plain = self._decrypt_response(resp, label)
+        self._require_success(plain, label)
 
     async def _control_lock(self, opcode: int, ps: int, label: str) -> None:
-        frame = Frame.for_lock(
-            self.key.lockVersion,
-            opcode,
-            cmd.payload_unlock(ps, self.key.unlockKey),
-        ).encrypt_data(self._aes_key)
-        resp = await self._exchange(frame)
+        resp = await self._transport.exchange(
+            self._frame(opcode, cmd.payload_unlock(ps, self.key.unlockKey))
+        )
         plain = self._decrypt_response(resp, label)
+        self._require_success(plain, label)
+
+    def _require_success(self, plain: bytes, label: str) -> None:
+        """Log the envelope and raise unless the lock reported success."""
         echo, status, data = self._parse_response_envelope(plain, label)
         log.info(
             "%s response: cmd_echo=0x%02x status=%d data=%s",

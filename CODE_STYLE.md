@@ -24,6 +24,8 @@ committing — all three must exit cleanly. `uv run pytest` follows.
     plus `__init__.py`.
   - Example: `models/` could contain `virtual_key.py`, `lock_version.py`,
     `site_info.py`, plus `__init__.py`.
+  - Example: `ble/` holds the link layer under `TTLockClient` — `transport.py`,
+    `keep_alive.py`, `device_finder.py`, `constants.py`, plus `__init__.py`.
 - **Public surface goes through the package `__init__.py`.** Anything not
   re-exported there is internal — prefix with `_` if intended to stay private.
 - **TypedDicts and `type` aliases do not count as "classes"** for this rule —

@@ -13,11 +13,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import ttlock_ble.client as client_mod
+import ttlock_ble.ble.device_finder as device_finder_mod
+import ttlock_ble.ble.transport as transport_mod
 from tests.conftest import make_virtual_key
 from ttlock_ble import TTLockClient, VirtualKey
 from ttlock_ble import commands as cmd
-from ttlock_ble.client import (
+from ttlock_ble.ble import find_lock_device
+from ttlock_ble.ble.constants import (
     BONG_NOTIFY,
     BONG_SERVICE,
     BONG_WRITE,
@@ -118,7 +120,7 @@ def patched_connect(monkeypatch):
         async def _establish(*_args, **_kwargs) -> FakeBleakClient:
             return fake
 
-        monkeypatch.setattr(client_mod, "establish_connection", _establish)
+        monkeypatch.setattr(transport_mod, "establish_connection", _establish)
 
     return _install
 
@@ -131,8 +133,8 @@ class TestConnect:
         patched_connect(fake)
         await client.connect()
         assert client.is_connected
-        assert client._notify_char == "notify-char"
-        assert client._write_char == "write-char"
+        assert client._transport._notify_char == "notify-char"
+        assert client._transport._write_char == "write-char"
         await client.disconnect()
         assert fake.disconnected
 
@@ -152,16 +154,16 @@ class TestConnect:
         fake = FakeBleakClient(key, service="bong")
         patched_connect(fake)
         await client.connect()
-        assert client._notify_char == "notify-char"
+        assert client._transport._notify_char == "notify-char"
 
     async def test_connect_no_device_and_scan_fails_raises(self, monkeypatch) -> None:
         key = make_virtual_key()
         client = TTLockClient(key)
 
-        async def _no_device() -> None:
+        async def _no_device(*_a, **_k) -> None:
             return None
 
-        monkeypatch.setattr(client, "_find_device", _no_device)
+        monkeypatch.setattr(transport_mod, "find_lock_device", _no_device)
         with pytest.raises(TTLockError, match="Failed to find lock"):
             await client.connect()
 
@@ -172,7 +174,7 @@ class TestConnect:
         async def _boom(*_a, **_k) -> None:
             raise OSError("adapter down")
 
-        monkeypatch.setattr(client_mod, "establish_connection", _boom)
+        monkeypatch.setattr(transport_mod, "establish_connection", _boom)
         with pytest.raises(TTLockError, match="Failed to connect"):
             await client.connect()
 
@@ -197,20 +199,20 @@ class TestConnect:
 
 @pytest.fixture(autouse=True)
 def _fast_sleep(monkeypatch):
-    """Make asyncio.sleep in the client module instant."""
+    """Make asyncio.sleep instant everywhere the BLE layer awaits it."""
     real_sleep = asyncio.sleep
 
     async def _sleep(seconds: float) -> None:
         await real_sleep(0)
 
-    monkeypatch.setattr(client_mod.asyncio, "sleep", _sleep)
+    monkeypatch.setattr(transport_mod.asyncio, "sleep", _sleep)
 
 
 class TestDisconnect:
     async def test_disconnect_when_never_connected_is_noop(self) -> None:
         client = TTLockClient(make_virtual_key())
         await client.disconnect()  # must not raise
-        assert client._client is None
+        assert client._transport._client is None
 
     async def test_disconnect_swallows_stop_notify_error(self, patched_connect) -> None:
         key = make_virtual_key()
@@ -398,16 +400,16 @@ class TestExchangeTimeout:
     async def test_recv_timeout_wrapped(self) -> None:
         key = make_virtual_key()
         client = TTLockClient(key)
-        client._client = MagicMock(is_connected=True)
-        client._write_char = "w"
+        client._transport._client = MagicMock(is_connected=True)
+        client._transport._write_char = "w"
 
         async def _no_write(*_a, **_k) -> None:
             return None
 
-        client._client.write_gatt_char = _no_write  # type: ignore[method-assign]
+        client._transport._client.write_gatt_char = _no_write  # type: ignore[method-assign]
         frame = Frame.for_lock(key.lockVersion, cmd.CMD_QUERY_STATE, b"")
         with pytest.raises(TTLockError, match="Timed out"):
-            await client._exchange(frame, timeout=0.01)
+            await client._transport.exchange(frame, timeout=0.01)
 
 
 class TestNotifyRouting:
@@ -417,16 +419,16 @@ class TestNotifyRouting:
         events = []
         client.add_event_listener(events.append)
         frame = _resp_frame(key, 0x54, bytes.fromhex("47012a0000"))
-        client._on_notify("char", bytearray(frame.build()))
+        client._transport._on_notify("char", bytearray(frame.build()))
         assert len(events) == 1
 
     async def test_notify_routes_to_inbox_when_waiting(self) -> None:
         key = make_virtual_key()
         client = TTLockClient(key)
-        client._waiting_for_response = 1
+        client._transport._waiting_for_response = 1
         frame = _resp_frame(key, 0x54, bytes.fromhex("47012a0000"))
-        client._on_notify("char", bytearray(frame.build()))
-        assert client._inbox.qsize() == 1
+        client._transport._on_notify("char", bytearray(frame.build()))
+        assert client._transport._inbox.qsize() == 1
 
 
 class TestKeepAlive:
@@ -441,29 +443,29 @@ class TestKeepAlive:
             _resp_frame(key, cmd.CMD_UNLOCK, _status_plain(cmd.CMD_UNLOCK)),
         ]
         await client.unlock()
-        assert client._keep_alive_task is not None
+        assert client._keep_alive.task is not None
         # disconnect stops it cleanly.
         await client.disconnect()
-        assert client._keep_alive_task is None
+        assert client._keep_alive.task is None
 
     async def test_restart_keep_alive_cancels_previous(self) -> None:
         key = make_virtual_key()
         client = TTLockClient(key, keep_alive_after_command=5.0)
-        client._client = MagicMock(is_connected=True)
-        client._restart_keep_alive()
-        first = client._keep_alive_task
-        client._restart_keep_alive()
-        assert client._keep_alive_task is not first
-        await client._stop_keep_alive()
+        client._transport._client = MagicMock(is_connected=True)
+        client._keep_alive.restart()
+        first = client._keep_alive.task
+        client._keep_alive.restart()
+        assert client._keep_alive.task is not first
+        await client._keep_alive.stop()
 
     async def test_keep_alive_disabled_when_zero(self) -> None:
         client = TTLockClient(make_virtual_key(), keep_alive_after_command=0)
-        client._restart_keep_alive()
-        assert client._keep_alive_task is None
+        client._keep_alive.restart()
+        assert client._keep_alive.task is None
 
     async def test_stop_keep_alive_noop_when_none(self) -> None:
         client = TTLockClient(make_virtual_key())
-        await client._stop_keep_alive()  # must not raise
+        await client._keep_alive.stop()  # must not raise
 
 
 class TestContextManager:
@@ -532,7 +534,7 @@ class TestKeepAliveLoop:
             )
             for _ in range(5)
         ]
-        await client._keep_alive_loop()
+        await client._keep_alive.run()
         await client.disconnect()
 
     async def test_keep_alive_loop_stops_on_exchange_error(self, patched_connect) -> None:
@@ -545,16 +547,15 @@ class TestKeepAliveLoop:
         async def _boom(*_a, **_k):
             raise TTLockError("link dropped")
 
-        client._exchange = _boom  # type: ignore[method-assign]
+        client._transport.exchange = _boom  # type: ignore[method-assign]
         # Loop catches the TTLockError and returns instead of hanging.
-        await client._keep_alive_loop()
+        await client._keep_alive.run()
         await client.disconnect()
 
 
 class TestFindDevice:
     async def test_find_device_matches_by_mac(self, monkeypatch) -> None:
         key = make_virtual_key()
-        client = TTLockClient(key, scan_timeout=0.01)
 
         target = MagicMock()
         target.address = key.lockMac
@@ -572,13 +573,12 @@ class TestFindDevice:
             async def __aexit__(self, *_exc) -> None:
                 return None
 
-        monkeypatch.setattr(client_mod, "BleakScanner", FakeScanner)
-        found = await client._find_device()
+        monkeypatch.setattr(device_finder_mod, "BleakScanner", FakeScanner)
+        found = await find_lock_device(key.lockMac, 0.01)
         assert found is target
 
     async def test_find_device_returns_none_on_timeout(self, monkeypatch) -> None:
         key = make_virtual_key()
-        client = TTLockClient(key, scan_timeout=0.01)
 
         class FakeScanner:
             def __init__(self, *, detection_callback) -> None:
@@ -590,8 +590,8 @@ class TestFindDevice:
             async def __aexit__(self, *_exc) -> None:
                 return None
 
-        monkeypatch.setattr(client_mod, "BleakScanner", FakeScanner)
-        found = await client._find_device()
+        monkeypatch.setattr(device_finder_mod, "BleakScanner", FakeScanner)
+        found = await find_lock_device(key.lockMac, 0.01)
         assert found is None
 
 

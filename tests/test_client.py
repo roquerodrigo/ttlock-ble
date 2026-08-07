@@ -23,19 +23,19 @@ class TestConstruction:
     def test_defaults_no_device(self):
         client = TTLockClient(make_virtual_key())
         assert client.is_connected is False
-        assert client._device is None
+        assert client._transport.device is None
 
     def test_from_ble_device_attaches_device(self):
         device = MagicMock(name="BLEDevice")
         client = TTLockClient.from_ble_device(device, make_virtual_key())
-        assert client._device is device
+        assert client._transport.device is device
 
     def test_disconnected_callback_stored(self):
         cb = MagicMock(name="disconnected_callback")
         client = TTLockClient.from_ble_device(
             MagicMock(), make_virtual_key(), disconnected_callback=cb
         )
-        assert client._disconnected_callback is cb
+        assert client._transport.disconnected_callback is cb
 
 
 class TestEventListeners:
@@ -231,7 +231,7 @@ class TestOperationLogPagination:
             sent.append(frame)
             return next(replies)
 
-        client._exchange = fake_exchange  # type: ignore[method-assign]
+        client._transport.exchange = fake_exchange  # type: ignore[method-assign]
         entries = asyncio.run(client.get_operation_log())
 
         assert [e.password for e in entries] == ["1111", "2222", "3333"]
@@ -256,7 +256,7 @@ class TestOperationLogPagination:
             sent.append(frame)
             return next(replies)
 
-        client._exchange = fake_exchange  # type: ignore[method-assign]
+        client._transport.exchange = fake_exchange  # type: ignore[method-assign]
         entries = asyncio.run(client.get_operation_log())
 
         assert len(entries) == 1
@@ -276,7 +276,7 @@ class TestOperationLogPagination:
         async def fake_exchange(_frame: Frame, *, timeout: float = 6.0) -> Frame:  # noqa: ASYNC109
             return next(replies)
 
-        client._exchange = fake_exchange  # type: ignore[method-assign]
+        client._transport.exchange = fake_exchange  # type: ignore[method-assign]
         entries = asyncio.run(client.get_operation_log(max_entries=2))
         assert [e.password for e in entries] == ["aaaa", "bbbb"]
 
@@ -334,7 +334,7 @@ class TestSyncTime:
         async def fake_exchange(_frame: Frame, *, timeout: float = 6.0) -> Frame:  # noqa: ASYNC109
             return next(replies)
 
-        client._exchange = fake_exchange  # type: ignore[method-assign]
+        client._transport.exchange = fake_exchange  # type: ignore[method-assign]
         got = asyncio.run(client.get_lock_time())
         assert got == expected
         assert got.tzinfo is None
@@ -352,7 +352,7 @@ class TestSyncTime:
             sent.append(frame)
             return next(replies)
 
-        client._exchange = fake_exchange  # type: ignore[method-assign]
+        client._transport.exchange = fake_exchange  # type: ignore[method-assign]
         drift = asyncio.run(client.sync_time(when=reference))
         assert drift == 1.0
         assert len(sent) == 1  # only the GET_LOCK_TIME exchange
@@ -375,7 +375,7 @@ class TestSyncTime:
             sent.append(frame)
             return next(replies)
 
-        client._exchange = fake_exchange  # type: ignore[method-assign]
+        client._transport.exchange = fake_exchange  # type: ignore[method-assign]
         drift = asyncio.run(client.sync_time(when=reference))
         assert drift == -10.0
         assert len(sent) == 2  # GET_LOCK_TIME + TIME_CALIBRATE
@@ -395,7 +395,7 @@ class TestSyncTime:
         async def fake_exchange(_frame: Frame, *, timeout: float = 6.0) -> Frame:  # noqa: ASYNC109
             return next(replies)
 
-        client._exchange = fake_exchange  # type: ignore[method-assign]
+        client._transport.exchange = fake_exchange  # type: ignore[method-assign]
         drift = asyncio.run(client.sync_time(when=aware_ref))
         assert drift == 1.0
 
@@ -446,10 +446,10 @@ class TestExchangeRouting:
         assert reply.command != request.command
 
         async def fake_send(_frame: Frame) -> None:
-            client._inbox.put_nowait(reply)
+            client._transport._inbox.put_nowait(reply)
 
-        client._send = fake_send  # type: ignore[method-assign]
-        assert await client._exchange(request) is reply
+        client._transport.send = fake_send  # type: ignore[method-assign]
+        assert await client._transport.exchange(request) is reply
 
     async def test_push_is_dispatched_and_the_real_reply_is_returned(self):
         client = TTLockClient(make_virtual_key())
@@ -461,11 +461,11 @@ class TestExchangeRouting:
         reply = self._lock_frame(client.key, bytes.fromhex("55010000002a"))
 
         async def fake_send(_frame: Frame) -> None:
-            client._inbox.put_nowait(push)
-            client._inbox.put_nowait(reply)
+            client._transport._inbox.put_nowait(push)
+            client._transport._inbox.put_nowait(reply)
 
-        client._send = fake_send  # type: ignore[method-assign]
-        received = await client._exchange(request)
+        client._transport.send = fake_send  # type: ignore[method-assign]
+        received = await client._transport.exchange(request)
 
         assert received is reply
         assert [event.cmd_echo for event in events] == [0x14]
@@ -478,11 +478,11 @@ class TestExchangeRouting:
         push = self._lock_frame(client.key, bytes.fromhex("14012a0100"))
 
         async def fake_send(_frame: Frame) -> None:
-            client._inbox.put_nowait(push)
+            client._transport._inbox.put_nowait(push)
 
-        client._send = fake_send  # type: ignore[method-assign]
+        client._transport.send = fake_send  # type: ignore[method-assign]
         with pytest.raises(TTLockError, match="Timed out waiting"):
-            await client._exchange(request, timeout=0.05)
+            await client._transport.exchange(request, timeout=0.05)
 
     async def test_an_undecodable_frame_is_passed_through(self):
         """We cannot classify it, and a timeout would hide it from the caller."""
@@ -500,10 +500,10 @@ class TestExchangeRouting:
         )
 
         async def fake_send(_frame: Frame) -> None:
-            client._inbox.put_nowait(garbage)
+            client._transport._inbox.put_nowait(garbage)
 
-        client._send = fake_send  # type: ignore[method-assign]
-        assert await client._exchange(request) is garbage
+        client._transport.send = fake_send  # type: ignore[method-assign]
+        assert await client._transport.exchange(request) is garbage
 
     async def test_waiting_flag_is_released_after_a_routed_push(self):
         client = TTLockClient(make_virtual_key())
@@ -511,9 +511,9 @@ class TestExchangeRouting:
         reply = self._lock_frame(client.key, bytes.fromhex("55010000002a"))
 
         async def fake_send(_frame: Frame) -> None:
-            client._inbox.put_nowait(self._lock_frame(client.key, bytes.fromhex("1401")))
-            client._inbox.put_nowait(reply)
+            client._transport._inbox.put_nowait(self._lock_frame(client.key, bytes.fromhex("1401")))
+            client._transport._inbox.put_nowait(reply)
 
-        client._send = fake_send  # type: ignore[method-assign]
-        await client._exchange(request)
-        assert client._waiting_for_response == 0
+        client._transport.send = fake_send  # type: ignore[method-assign]
+        await client._transport.exchange(request)
+        assert client._transport._waiting_for_response == 0

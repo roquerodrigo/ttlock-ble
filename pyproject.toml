@@ -121,7 +121,7 @@ ignore = [
     "FBT001",   # boolean-positional in typer commands is the framework idiom
     "FBT003",   # so is the boolean positional passed to typer.Option
 ]
-"src/ttlock_ble/client.py" = [
+"src/ttlock_ble/ble/transport.py" = [
     "S101",     # asserts narrow Optional GATT handles for mypy after connect()
 ]
 "src/ttlock_ble/models/*.py" = [
