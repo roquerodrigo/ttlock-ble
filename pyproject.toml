@@ -137,7 +137,7 @@ ignore = [
 fixture-parentheses = false
 
 [tool.ruff.lint.mccabe]
-max-complexity = 25
+max-complexity = 10
 
 [tool.mypy]
 files = ["src"]

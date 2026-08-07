@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import TYPE_CHECKING
 
 import pytest
 
 from ttlock_ble import commands as cmd
+from ttlock_ble.commands import log_record
 from ttlock_ble.constants import KeyboardPwdType, LockState
+
+if TYPE_CHECKING:
+    from ttlock_ble.models import LogEntry
 
 
 class TestPayloadBuilders:
@@ -243,3 +248,82 @@ class TestLogRecordVariants:
         entries, _ = cmd.parse_operate_log_response(plain)
         assert entries[0].password == "1111"
         assert entries[0].new_password == "2222"
+
+
+class TestLogRecordTruncatedTails:
+    """A body shorter than its record type's tail yields the header fields only."""
+
+    def _entry(self, rtype: int, tail: bytes) -> LogEntry:
+        plain = _log_frame_plain([bytes([rtype, 26, 5, 11, 14, 23, 7, 90]) + tail], sequence=3)
+        entries, _ = cmd.parse_operate_log_response(plain)
+        return entries[0]
+
+    @pytest.mark.parametrize(
+        ("record_type", "tail"),
+        [
+            (1, (7).to_bytes(4, "big")),
+            (37, (1).to_bytes(4, "big") + (2).to_bytes(4, "big")),
+            (8, bytes([26, 5, 11, 14])),
+            (15, b""),
+            (20, bytes([1, 2, 3])),
+            (30, b""),
+            (19, bytes([1, 2, 3])),
+            (55, bytes([1, 2, 3])),
+            (56, bytes([1, 2, 3])),
+            (57, bytes([1])),
+            (67, bytes([1, 2, 3])),
+            (93, b""),
+            (93, bytes([9]) + b"12"),
+            (94, bytes([1, 2, 3])),
+            (4, b""),
+            (4, bytes([9]) + b"12"),
+        ],
+    )
+    def test_short_tail_leaves_optional_fields_unset(self, record_type: int, tail: bytes) -> None:
+        entry = self._entry(record_type, tail)
+        assert entry.lock_battery == 90
+        assert entry.uid is None
+        assert entry.record_id is None
+        assert entry.password is None
+        assert entry.new_password is None
+        assert entry.delete_date is None
+        assert entry.key_id is None
+        assert entry.accessory_battery is None
+        assert entry.start_date is None
+        assert entry.end_date is None
+
+    def test_clear_all_carries_the_passcode_after_the_delete_date(self) -> None:
+        entry = self._entry(8, bytes([26, 5, 11, 14, 23]) + bytes([4]) + b"5678")
+        assert entry.delete_date is not None
+        assert entry.password == "5678"
+
+    def test_key_fob_without_battery_keeps_the_key_id(self) -> None:
+        entry = self._entry(55, bytes([1, 2, 3, 4, 5, 6, 3]))
+        assert entry.key_id == 3
+        assert entry.accessory_battery is None
+
+    def test_added_passcode_without_the_validity_window(self) -> None:
+        entry = self._entry(93, bytes([4]) + b"1234")
+        assert entry.password == "1234"
+        assert entry.start_date is None
+        assert entry.end_date is None
+
+
+class TestLogRecordDispatch:
+    """The lookup table is what replaced the SDK's flat switch — guard its shape."""
+
+    def test_buckets_are_disjoint(self) -> None:
+        buckets = [types for types, _ in log_record._TAIL_DECODERS_BY_BUCKET]
+        assert sum(len(types) for types in buckets) == len(log_record._TAIL_DECODERS)
+        assert set().union(*buckets) == set(log_record._TAIL_DECODERS)
+
+    def test_unknown_record_type_decodes_the_header_only(self) -> None:
+        unknown = next(t for t in range(256) if t not in log_record._TAIL_DECODERS)
+        plain = _log_frame_plain(
+            [bytes([unknown, 26, 5, 11, 14, 23, 7, 90]) + b"\x01\x02\x03\x04"], sequence=3
+        )
+        entries, _ = cmd.parse_operate_log_response(plain)
+        assert entries[0].record_type == unknown
+        assert entries[0].lock_battery == 90
+        assert entries[0].password is None
+        assert entries[0].uid is None
