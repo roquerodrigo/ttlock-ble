@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.1.11](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.10...v0.1.11) (2026-08-07)
+
+
+### Bug Fixes
+
+* keep command failures inside the public exception hierarchy ([92d31f6](https://github.com/roquerodrigo/ttlock-ble/commit/92d31f6b13a6fbd97190e8aa7a5e5d6b9c956dc4))
+* **protocol:** delimit frames by their declared length ([e5ff05e](https://github.com/roquerodrigo/ttlock-ble/commit/e5ff05e38023600d662e23739a287c98cbdf5781)), closes [#55](https://github.com/roquerodrigo/ttlock-ble/issues/55)
+
+
+### Code Refactoring
+
+* hoist lazy imports and modernize event-loop access ([4332bc5](https://github.com/roquerodrigo/ttlock-ble/commit/4332bc542016c445f1c66fc433d12c14ee9bcfa3))
+* split the command layer into one module per command family ([3a98492](https://github.com/roquerodrigo/ttlock-ble/commit/3a98492cf26d6b9805196302821c045b145b07cd))
+
+
+### Documentation
+
+* align CODE_STYLE, README, and docstrings with the actual project ([1bffa02](https://github.com/roquerodrigo/ttlock-ble/commit/1bffa02f16067549d7087fa52aca40494bdf1d8a))
+
+
+### Build System
+
+* keep development assets out of the source distribution ([8052641](https://github.com/roquerodrigo/ttlock-ble/commit/8052641738d0cdd89ceef7169169a5d7578dd2c5))
+
+
+### Continuous Integration
+
+* run checks on pull requests targeting any branch ([bba7bf5](https://github.com/roquerodrigo/ttlock-ble/commit/bba7bf57a2d6039bc3b555a08ed5566a959602fe))
+* run code scanning on pull requests targeting any branch ([eac9ba0](https://github.com/roquerodrigo/ttlock-ble/commit/eac9ba0e8c65e7857e3a3b8c41b73479abd2629b))
+
+
+### Tests
+
+* replace captured fixtures with synthetic credentials ([bb91906](https://github.com/roquerodrigo/ttlock-ble/commit/bb91906262dd60af415617fc9d09a5e549aa04e7))
+* share the VirtualKey fixture through conftest ([6f3098b](https://github.com/roquerodrigo/ttlock-ble/commit/6f3098bf6c52a6fd8f721893b86a2571bc337457))
+
+
+### Miscellaneous Chores
+
+* consolidate packaging metadata and tool configuration ([102912c](https://github.com/roquerodrigo/ttlock-ble/commit/102912c189b33354aff14fab5190851ca6822a70))
+* enforce top-level imports outside the test tree ([b3d50cd](https://github.com/roquerodrigo/ttlock-ble/commit/b3d50cdd7aec85b2f2bd2fe1a38a6f1f619dc3a3))
+* keep the test-local import exemption ([5a4e710](https://github.com/roquerodrigo/ttlock-ble/commit/5a4e71090788fe7df32fe19ed7f61595b94c37cd))
+* tighten and scope the lint and type-check configuration ([1e32d88](https://github.com/roquerodrigo/ttlock-ble/commit/1e32d889aeb99ecfc0ac901a72068bf19c9624b0))
+
 ## [0.1.10](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.9...v0.1.10) (2026-08-05)
 
 
