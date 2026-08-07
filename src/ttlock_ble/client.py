@@ -665,7 +665,7 @@ class TTLockClient:
         try:
             plain = aes_decrypt(candidate.data, self._aes_key)
             echo, _status, _data = cmd.parse_response_status(plain)
-        except (ValueError, RuntimeError):
+        except ValueError, RuntimeError:
             log.debug(
                 "Undecodable frame while awaiting 0x%02x; passing it through",
                 expected_command,

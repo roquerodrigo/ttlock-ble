@@ -45,7 +45,7 @@ The `ttlock` command-line tool ships as an optional extra:
 pip install "ttlock-ble[cli]"
 ```
 
-Requires Python 3.12+ and a BLE adapter supported by [`bleak`](https://github.com/hbldh/bleak).
+Requires Python 3.14+ and a BLE adapter supported by [`bleak`](https://github.com/hbldh/bleak).
 
 ## Quick start
 

@@ -174,8 +174,12 @@ and generate `CHANGELOG.md`:
 ## Packaging
 
 - Build backend: `hatchling`. Wheel and sdist contain `src/ttlock_ble`.
-- `requires-python = ">=3.12"`. Don't bump this without a `BREAKING CHANGE:`
-  footer.
+- `requires-python = ">=3.14"`, matching the floor Home Assistant declares —
+  the SDK exists to be consumed by an HA integration, so supporting older
+  interpreters is theoretical. Keep `[tool.ruff] target-version` and
+  `[tool.mypy] python_version` in step with it. Raising the floor drops
+  support for the versions below it, so it needs a `BREAKING CHANGE:` footer
+  once the package is on 1.x.
 - Public dependencies: keep them minimal and use `>=` lower bounds, not
   pins.
 - The `[dependency-groups] dev` group carries test-only deps.
