@@ -113,6 +113,7 @@ ignore = [
     "ARG001",   # unused fixtures are normal
     "D",        # docstrings not required in tests
     "ERA001",   # protocol-byte-layout comments are valuable in payload tests
+    "PLC0415",  # imports inside a test body keep the failure local to that case
     "PT011",    # pytest.raises bare ValueError is fine when the message isn't tested
     "PT018",    # composite assertion is normal in tests
     "S101",     # asserts are the point of tests
