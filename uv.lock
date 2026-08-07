@@ -123,7 +123,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiooui" },
     { name = "bleak" },
-    { name = "dbus-fast", marker = "sys_platform == 'linux'" },
+    { name = "dbus-fast" },
     { name = "uart-devices" },
     { name = "usb-devices" },
 ]
@@ -928,7 +928,7 @@ wheels = [
 
 [[package]]
 name = "ttlock-ble"
-version = "0.1.10"
+version = "0.1.11"
 source = { editable = "." }
 dependencies = [
     { name = "bleak" },
