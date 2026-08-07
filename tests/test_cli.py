@@ -14,7 +14,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from typer.testing import CliRunner
 
-from ttlock_ble import LockState, LockVersion, VirtualKey
+from tests.conftest import make_virtual_key
+from ttlock_ble import LockState
 from ttlock_ble._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from ttlock_ble.exceptions import CloudError
 
@@ -22,23 +23,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 runner = CliRunner()
-
-
-def _virtual_key() -> VirtualKey:
-    return VirtualKey(
-        keyId=1,
-        lockId=2,
-        lockMac="AA:BB:CC:11:22:33",
-        lockAlias="Test Lock",
-        lockName="DLock-XP",
-        lockVersion=LockVersion(protocolType=5, protocolVersion=3, scene=2, groupId=1, orgId=1),
-        aesKeyStr="a1,b2,c3,d4,e5,f6,07,18,29,3a,4b,5c,6d,7e,8f,90",
-        unlockKey="246813579",
-        lockFlagPos=0,
-        timezoneRawOffSet=-10800000,
-        userType="110301",
-        adminPs="135792468",
-    )
 
 
 @pytest.fixture
@@ -58,7 +42,7 @@ def cli_app(tmp_path: Path, monkeypatch):
 
 def _write_keys(store: Path) -> None:
     store.parent.mkdir(parents=True, exist_ok=True)
-    store.write_text(json.dumps([_virtual_key().to_dict()]))
+    store.write_text(json.dumps([make_virtual_key().to_dict()]))
 
 
 class TestSync:
@@ -67,7 +51,7 @@ class TestSync:
         fake_cloud = MagicMock()
         fake_cloud.discover_site = AsyncMock()
         fake_cloud.login = AsyncMock(return_value=MagicMock(uid=42))
-        fake_cloud.list_keys = AsyncMock(return_value=[_virtual_key()])
+        fake_cloud.list_keys = AsyncMock(return_value=[make_virtual_key()])
         fake_cloud.__aenter__ = AsyncMock(return_value=fake_cloud)
         fake_cloud.__aexit__ = AsyncMock(return_value=None)
         monkeypatch.setattr(cli_module, "TTLockCloud", lambda: fake_cloud)

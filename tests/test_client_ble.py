@@ -14,7 +14,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import ttlock_ble.client as client_mod
-from ttlock_ble import LockVersion, TTLockClient, VirtualKey
+from tests.conftest import make_virtual_key
+from ttlock_ble import TTLockClient, VirtualKey
 from ttlock_ble import commands as cmd
 from ttlock_ble.client import (
     BONG_NOTIFY,
@@ -30,23 +31,6 @@ from ttlock_ble.protocol import Frame
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-
-def _virtual_key() -> VirtualKey:
-    return VirtualKey(
-        keyId=1,
-        lockId=2,
-        lockMac="AA:BB:CC:11:22:33",
-        lockAlias="Test Lock",
-        lockName="DLock-XP",
-        lockVersion=LockVersion(protocolType=5, protocolVersion=3, scene=2, groupId=1, orgId=1),
-        aesKeyStr="a1,b2,c3,d4,e5,f6,07,18,29,3a,4b,5c,6d,7e,8f,90",
-        unlockKey="246813579",
-        lockFlagPos=0,
-        timezoneRawOffSet=-10800000,
-        userType="110301",
-        adminPs="135792468",
-    )
 
 
 def _resp_frame(key: VirtualKey, command: int, plain: bytes) -> Frame:
@@ -141,7 +125,7 @@ def patched_connect(monkeypatch):
 
 class TestConnect:
     async def test_connect_discovers_chars_and_starts_notify(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock())
         fake = FakeBleakClient(key)
         patched_connect(fake)
@@ -153,7 +137,7 @@ class TestConnect:
         assert fake.disconnected
 
     async def test_connect_is_idempotent(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock())
         fake = FakeBleakClient(key)
         patched_connect(fake)
@@ -163,7 +147,7 @@ class TestConnect:
         assert client.is_connected
 
     async def test_connect_uses_bong_service(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock())
         fake = FakeBleakClient(key, service="bong")
         patched_connect(fake)
@@ -171,7 +155,7 @@ class TestConnect:
         assert client._notify_char == "notify-char"
 
     async def test_connect_no_device_and_scan_fails_raises(self, monkeypatch) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
 
         async def _no_device() -> None:
@@ -182,7 +166,7 @@ class TestConnect:
             await client.connect()
 
     async def test_connect_establish_failure_wrapped(self, monkeypatch) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock())
 
         async def _boom(*_a, **_k) -> None:
@@ -193,7 +177,7 @@ class TestConnect:
             await client.connect()
 
     async def test_discover_chars_missing_service_raises(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock())
         fake = FakeBleakClient(key)
         fake.services = FakeServices({})  # no usable service
@@ -202,7 +186,7 @@ class TestConnect:
             await client.connect()
 
     async def test_battery_read_failure_is_non_fatal(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock())
         fake = FakeBleakClient(key)
         fake.battery_raises = True
@@ -224,12 +208,12 @@ def _fast_sleep(monkeypatch):
 
 class TestDisconnect:
     async def test_disconnect_when_never_connected_is_noop(self) -> None:
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         await client.disconnect()  # must not raise
         assert client._client is None
 
     async def test_disconnect_swallows_stop_notify_error(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock())
         fake = FakeBleakClient(key)
         fake.stop_notify = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
@@ -241,7 +225,7 @@ class TestDisconnect:
 
 class TestCommands:
     async def _connected(self, patched_connect, *, service: str = "ttl"):
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=0)
         fake = FakeBleakClient(key, service=service)
         patched_connect(fake)
@@ -364,7 +348,7 @@ class TestCommands:
 
 class TestExchangeTimeout:
     async def test_recv_timeout_wrapped(self) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         client._client = MagicMock(is_connected=True)
         client._write_char = "w"
@@ -380,7 +364,7 @@ class TestExchangeTimeout:
 
 class TestNotifyRouting:
     async def test_notify_dispatches_event_when_not_waiting(self) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         events = []
         client.add_event_listener(events.append)
@@ -389,7 +373,7 @@ class TestNotifyRouting:
         assert len(events) == 1
 
     async def test_notify_routes_to_inbox_when_waiting(self) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         client._waiting_for_response = 1
         frame = _resp_frame(key, 0x54, bytes.fromhex("47012a0000"))
@@ -399,7 +383,7 @@ class TestNotifyRouting:
 
 class TestKeepAlive:
     async def test_unlock_schedules_keep_alive(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=5.0)
         fake = FakeBleakClient(key)
         patched_connect(fake)
@@ -415,7 +399,7 @@ class TestKeepAlive:
         assert client._keep_alive_task is None
 
     async def test_restart_keep_alive_cancels_previous(self) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, keep_alive_after_command=5.0)
         client._client = MagicMock(is_connected=True)
         client._restart_keep_alive()
@@ -425,18 +409,18 @@ class TestKeepAlive:
         await client._stop_keep_alive()
 
     async def test_keep_alive_disabled_when_zero(self) -> None:
-        client = TTLockClient(_virtual_key(), keep_alive_after_command=0)
+        client = TTLockClient(make_virtual_key(), keep_alive_after_command=0)
         client._restart_keep_alive()
         assert client._keep_alive_task is None
 
     async def test_stop_keep_alive_noop_when_none(self) -> None:
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         await client._stop_keep_alive()  # must not raise
 
 
 class TestContextManager:
     async def test_async_with_connects_and_disconnects(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=0)
         fake = FakeBleakClient(key)
         patched_connect(fake)
@@ -447,7 +431,7 @@ class TestContextManager:
 
 class TestDispatchNoListeners:
     async def test_push_without_listeners_is_dropped(self) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         frame = _resp_frame(key, 0x54, bytes.fromhex("47012a0000"))
         client._dispatch_event(frame)  # no listeners → silent return, must not raise
@@ -455,7 +439,7 @@ class TestDispatchNoListeners:
 
 class TestGetLockTimeError:
     async def test_get_lock_time_parse_error_wrapped(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=0)
         fake = FakeBleakClient(key)
         patched_connect(fake)
@@ -470,7 +454,7 @@ class TestGetLockTimeError:
 
 class TestGetOperationLog:
     async def test_empty_first_page_returns_nothing(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=0)
         fake = FakeBleakClient(key)
         patched_connect(fake)
@@ -488,7 +472,7 @@ class TestKeepAliveLoop:
     async def test_keep_alive_loop_polls_then_exits(self, patched_connect) -> None:
         # _fast_sleep makes asyncio.sleep instant, so the loop iterates quickly;
         # the time.monotonic deadline (tiny window) bounds it.
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=0.001)
         fake = FakeBleakClient(key)
         patched_connect(fake)
@@ -504,7 +488,7 @@ class TestKeepAliveLoop:
         await client.disconnect()
 
     async def test_keep_alive_loop_stops_on_exchange_error(self, patched_connect) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=10.0)
         fake = FakeBleakClient(key)
         patched_connect(fake)
@@ -521,7 +505,7 @@ class TestKeepAliveLoop:
 
 class TestFindDevice:
     async def test_find_device_matches_by_mac(self, monkeypatch) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, scan_timeout=0.01)
 
         target = MagicMock()
@@ -545,7 +529,7 @@ class TestFindDevice:
         assert found is target
 
     async def test_find_device_returns_none_on_timeout(self, monkeypatch) -> None:
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key, scan_timeout=0.01)
 
         class FakeScanner:

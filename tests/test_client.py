@@ -6,10 +6,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.conftest import make_virtual_key
 from ttlock_ble import (
     LockEvent,
     LockState,
-    LockVersion,
     TTLockClient,
     TTLockError,
     VirtualKey,
@@ -19,49 +19,28 @@ from ttlock_ble.crypto import aes_decrypt, aes_encrypt, hex_key_to_bytes
 from ttlock_ble.protocol import Frame
 
 
-def _virtual_key() -> VirtualKey:
-    return VirtualKey(
-        keyId=1,
-        lockId=2,
-        lockMac="AA:BB:CC:11:22:33",
-        lockAlias="Test Lock",
-        lockName="DLock-XP",
-        lockVersion=LockVersion(
-            protocolType=5,
-            protocolVersion=3,
-            scene=2,
-            groupId=1,
-            orgId=1,
-        ),
-        aesKeyStr="a1,b2,c3,d4,e5,f6,07,18,29,3a,4b,5c,6d,7e,8f,90",
-        unlockKey="246813579",
-        lockFlagPos=0,
-        timezoneRawOffSet=-10800000,
-        userType="110301",
-        adminPs="135792468",
-    )
-
-
 class TestConstruction:
     def test_defaults_no_device(self):
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         assert client.is_connected is False
         assert client._device is None
 
     def test_from_ble_device_attaches_device(self):
         device = MagicMock(name="BLEDevice")
-        client = TTLockClient.from_ble_device(device, _virtual_key())
+        client = TTLockClient.from_ble_device(device, make_virtual_key())
         assert client._device is device
 
     def test_disconnected_callback_stored(self):
         cb = MagicMock(name="disconnected_callback")
-        client = TTLockClient.from_ble_device(MagicMock(), _virtual_key(), disconnected_callback=cb)
+        client = TTLockClient.from_ble_device(
+            MagicMock(), make_virtual_key(), disconnected_callback=cb
+        )
         assert client._disconnected_callback is cb
 
 
 class TestEventListeners:
     def test_add_remove(self):
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         cb = MagicMock(name="event_listener")
         client.add_event_listener(cb)
         assert cb in client._event_listeners
@@ -69,11 +48,11 @@ class TestEventListeners:
         assert cb not in client._event_listeners
 
     def test_remove_unregistered_is_noop(self):
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         client.remove_event_listener(MagicMock())  # must not raise
 
     def test_dedup(self):
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         cb = MagicMock()
         client.add_event_listener(cb)
         client.add_event_listener(cb)
@@ -98,7 +77,7 @@ class TestPushDispatch:
         )
 
     def test_event_dispatched_when_not_waiting(self):
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         events: list[LockEvent] = []
         client.add_event_listener(events.append)
         frame = self._build_push_frame(client.key, bytes.fromhex("47012a0000"))
@@ -109,7 +88,7 @@ class TestPushDispatch:
         assert events[0].data == bytes.fromhex("2a0000")
 
     def test_listener_exception_does_not_block_other_listeners(self):
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         good_calls: list[LockEvent] = []
         client.add_event_listener(lambda _e: (_ for _ in ()).throw(RuntimeError("boom")))
         client.add_event_listener(good_calls.append)
@@ -118,7 +97,7 @@ class TestPushDispatch:
         assert len(good_calls) == 1
 
     def test_undecodable_event_silently_swallowed(self):
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         events: list[LockEvent] = []
         client.add_event_listener(events.append)
         # Frame with non-AES garbage; decryption will fail, listener never fires.
@@ -233,7 +212,7 @@ class TestOperationLogPagination:
         return [int.from_bytes(aes_decrypt(f.data, aes)[:2], "big") for f in sent_frames]
 
     def test_paginates_using_response_sequence_verbatim(self):
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         sent: list[Frame] = []
         # Three pages, then an empty page to signal "done". Sequence direction
@@ -262,7 +241,7 @@ class TestOperationLogPagination:
     def test_stops_when_firmware_echoes_same_batch(self):
         # Some firmware revisions ignore our cursor and re-emit the latest entry.
         # Dedup must break the loop so we don't hang.
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         sent: list[Frame] = []
         same = _keypad_record("9999")
@@ -285,7 +264,7 @@ class TestOperationLogPagination:
         assert self._request_sequences(key, sent) == [0xFFFF, 7]
 
     def test_max_entries_caps_pagination(self):
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         scripted = [
             _operate_log_response_frame(key, sequence=10, records=[_keypad_record("aaaa")]),
@@ -347,7 +326,7 @@ class TestSyncTime:
     """`get_lock_time` reads the RTC; `sync_time` corrects only when drifted."""
 
     def test_get_lock_time_returns_naive_datetime(self):
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         expected = dt.datetime(2026, 5, 20, 12, 34, 56)  # noqa: DTZ001
         replies = iter([_get_lock_time_response_frame(key, expected)])
@@ -361,7 +340,7 @@ class TestSyncTime:
         assert got.tzinfo is None
 
     def test_sync_time_no_calibrate_when_within_threshold(self):
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         reference = dt.datetime(2026, 5, 20, 12, 0, 0)  # noqa: DTZ001
         # Lock is 1s ahead — within the default 2s threshold, so no calibrate.
@@ -379,7 +358,7 @@ class TestSyncTime:
         assert len(sent) == 1  # only the GET_LOCK_TIME exchange
 
     def test_sync_time_calibrates_when_drift_exceeds_threshold(self):
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         reference = dt.datetime(2026, 5, 20, 12, 0, 0)  # noqa: DTZ001
         # Lock is 10s behind — exceeds default threshold, must calibrate.
@@ -407,7 +386,7 @@ class TestSyncTime:
         assert calib_plain == bytes([26, 5, 20, 12, 0, 0])
 
     def test_sync_time_drops_tzinfo_from_reference(self):
-        key = _virtual_key()
+        key = make_virtual_key()
         client = TTLockClient(key)
         aware_ref = dt.datetime(2026, 5, 20, 12, 0, 0, tzinfo=dt.UTC)
         lock_time = dt.datetime(2026, 5, 20, 12, 0, 1)  # noqa: DTZ001  # naive, +1s
@@ -461,7 +440,7 @@ class TestExchangeRouting:
 
     async def test_a_plain_reply_is_returned(self):
         """The reply's frame byte is 0x54, not the request's opcode."""
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         request = self._request(client.key, 0x55)
         reply = self._lock_frame(client.key, bytes.fromhex("55010000002a"))
         assert reply.command != request.command
@@ -473,7 +452,7 @@ class TestExchangeRouting:
         assert await client._exchange(request) is reply
 
     async def test_push_is_dispatched_and_the_real_reply_is_returned(self):
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         events: list[LockEvent] = []
         client.add_event_listener(events.append)
 
@@ -493,7 +472,7 @@ class TestExchangeRouting:
 
     async def test_only_pushes_times_out_without_consuming_the_deadline_twice(self):
         """A stream of pushes must not extend the wait past the deadline."""
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         client.add_event_listener(lambda _e: None)
         request = self._request(client.key, 0x55)
         push = self._lock_frame(client.key, bytes.fromhex("14012a0100"))
@@ -507,7 +486,7 @@ class TestExchangeRouting:
 
     async def test_an_undecodable_frame_is_passed_through(self):
         """We cannot classify it, and a timeout would hide it from the caller."""
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         request = self._request(client.key, 0x55)
         garbage = Frame(
             protocol_type=5,
@@ -527,7 +506,7 @@ class TestExchangeRouting:
         assert await client._exchange(request) is garbage
 
     async def test_waiting_flag_is_released_after_a_routed_push(self):
-        client = TTLockClient(_virtual_key())
+        client = TTLockClient(make_virtual_key())
         request = self._request(client.key, 0x55)
         reply = self._lock_frame(client.key, bytes.fromhex("55010000002a"))
 
