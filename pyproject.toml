@@ -49,12 +49,24 @@ packages = ["src/ttlock_ble"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/ttlock_ble/py.typed" = "ttlock_ble/py.typed"
 
+# The source distribution carries the library and its documentation only. The
+# test suite, the local tooling and the CI definitions are development assets:
+# shipping them to PyPI publishes fixtures nobody installing the SDK can use.
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src/ttlock_ble",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+]
+
 [dependency-groups]
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     "pre-commit==4.6.1",
+    "hatchling==1.28.0",
     "ttlock-ble[cli]",
 ]
 lint = [
