@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.12](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.11...v0.1.12) (2026-08-07)
+
+
+### Features
+
+* **packaging:** require Python 3.14 ([37a2bc8](https://github.com/roquerodrigo/ttlock-ble/commit/37a2bc833ef26f88d8df3d22a24c1170641fa58b))
+
+
+### Code Refactoring
+
+* **ble:** move the BLE link out of TTLockClient into its own layer ([3e4d055](https://github.com/roquerodrigo/ttlock-ble/commit/3e4d055543e2f87fef21c336da6ef6989668f315))
+* **commands:** decode operate-log tails through a dispatch table ([a5a1402](https://github.com/roquerodrigo/ttlock-ble/commit/a5a1402021cdd2f3edf42ee02fdea615fdd57ccb))
+
+
+### Miscellaneous Chores
+
+* add an editorconfig ([4a8b21f](https://github.com/roquerodrigo/ttlock-ble/commit/4a8b21f96d7405995594638066965251a26cde9f))
+
 ## [0.1.11](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.10...v0.1.11) (2026-08-07)
 
 
