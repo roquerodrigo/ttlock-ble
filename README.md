@@ -39,6 +39,12 @@ Or, with [uv](https://docs.astral.sh/uv/):
 uv add ttlock-ble
 ```
 
+The `ttlock` command-line tool ships as an optional extra:
+
+```bash
+pip install "ttlock-ble[cli]"
+```
+
 Requires Python 3.12+ and a BLE adapter supported by [`bleak`](https://github.com/hbldh/bleak).
 
 ## Quick start
@@ -116,7 +122,8 @@ a payload long enough to decode is not proof that it came from a lock.
 
 ## CLI
 
-Installing the package exposes a `ttlock` command (env: `TTLOCK_EMAIL`, `TTLOCK_PASSWORD`,
+Installing the package with the `cli` extra (`pip install "ttlock-ble[cli]"`) exposes a
+`ttlock` command (env: `TTLOCK_EMAIL`, `TTLOCK_PASSWORD`,
 optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is honored):
 
 | Command | What it does |

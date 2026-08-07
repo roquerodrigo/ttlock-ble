@@ -123,7 +123,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiooui" },
     { name = "bleak" },
-    { name = "dbus-fast" },
+    { name = "dbus-fast", marker = "sys_platform == 'linux'" },
     { name = "uart-devices" },
     { name = "usb-devices" },
 ]
@@ -911,6 +911,10 @@ dependencies = [
     { name = "bleak-retry-connector" },
     { name = "cryptography" },
     { name = "httpx" },
+]
+
+[package.optional-dependencies]
+cli = [
     { name = "python-dotenv" },
     { name = "typer" },
 ]
@@ -921,6 +925,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "ttlock-ble", extra = ["cli"] },
 ]
 lint = [
     { name = "mypy" },
@@ -933,9 +938,10 @@ requires-dist = [
     { name = "bleak-retry-connector", specifier = ">=4.4.0" },
     { name = "cryptography", specifier = ">=44.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "typer", specifier = ">=0.12.0" },
+    { name = "python-dotenv", marker = "extra == 'cli'", specifier = ">=1.0.0" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12.0" },
 ]
+provides-extras = ["cli"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -943,6 +949,7 @@ dev = [
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-asyncio", specifier = "==1.4.0" },
     { name = "pytest-cov", specifier = "==7.1.0" },
+    { name = "ttlock-ble", extras = ["cli"] },
 ]
 lint = [
     { name = "mypy", specifier = "==2.3.0" },

@@ -198,10 +198,10 @@ and generate `CHANGELOG.md`:
 
 ## Linting and verification
 
-- Ruff configuration lives in `.ruff.toml` with `select = ["ALL"]` and a
-  short list of justified ignores.
-- Mypy configuration lives in `mypy.ini` (strict).
-- Pytest configuration lives in `pytest.ini`, including the coverage flags
+- Ruff, mypy, and pytest are all configured in `pyproject.toml`:
+  `[tool.ruff.lint]` uses `select = ["ALL"]` with a short list of justified
+  ignores; `[tool.mypy]` runs `strict = true`; `[tool.pytest.ini_options]`
+  carries the coverage flags
   (`--cov=src/ttlock_ble --cov-report=term-missing --cov-fail-under=90`)
   in `addopts`, so `uv run pytest` enforces the gate. Raise the 90 % gate
   as BLE/HTTP mocked coverage grows.
