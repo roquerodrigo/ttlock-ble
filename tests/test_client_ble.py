@@ -266,6 +266,54 @@ class TestCommands:
         with pytest.raises(TTLockError, match="Failed to unlock"):
             await client.unlock()
 
+    async def test_unlock_check_user_time_rejected_raises_ttlock_error(
+        self, patched_connect
+    ) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_USER_TIME,
+                _status_plain(cmd.CMD_CHECK_USER_TIME, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to validate virtual key"):
+            await client.unlock()
+
+    async def test_unlock_undecodable_reply_raises_ttlock_error(self, patched_connect) -> None:
+        # _exchange passes undecodable frames through; the command layer must
+        # surface them as TTLockError, not as a raw ValueError from the AES layer.
+        client, fake, key = await self._connected(patched_connect)
+        garbage = Frame(
+            protocol_type=key.lockVersion.protocolType,
+            sub_version=key.lockVersion.protocolVersion,
+            scene=key.lockVersion.scene,
+            group_id=key.lockVersion.groupId,
+            sub_org=key.lockVersion.orgId,
+            command=cmd.CMD_RESPONSE,
+            encrypt=0xAA,
+            data=b"\x00" * 16,
+        )
+        fake.reply_for_next = [garbage]
+        with pytest.raises(TTLockError, match="Failed to decrypt"):
+            await client.unlock()
+
+    async def test_query_state_undecodable_reply_raises_ttlock_error(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        garbage = Frame(
+            protocol_type=key.lockVersion.protocolType,
+            sub_version=key.lockVersion.protocolVersion,
+            scene=key.lockVersion.scene,
+            group_id=key.lockVersion.groupId,
+            sub_org=key.lockVersion.orgId,
+            command=cmd.CMD_RESPONSE,
+            encrypt=0xAA,
+            data=b"\x00" * 16,
+        )
+        fake.reply_for_next = [garbage]
+        with pytest.raises(TTLockError, match="Failed to decrypt"):
+            await client.query_state()
+
     async def test_lock_success(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [

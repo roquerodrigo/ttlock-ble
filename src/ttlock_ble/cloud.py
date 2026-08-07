@@ -192,7 +192,7 @@ class TTLockCloud:
     async def list_keys(self) -> list[VirtualKey]:
         """Page through `/check/syncDataPage` and return every `VirtualKey` for this user."""
         if self.creds is None:
-            raise RuntimeError("login() before list_keys()")
+            raise CloudError({"errmsg": "login() before list_keys()"})
         keys: list[VirtualKey] = []
         page_no = 1
         user_info = json.dumps(

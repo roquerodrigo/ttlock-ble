@@ -229,7 +229,7 @@ class TestListKeys:
 
     async def test_requires_login_first(self) -> None:
         cloud, _ = _cloud([])
-        with pytest.raises(RuntimeError, match="login\\(\\) before list_keys"):
+        with pytest.raises(CloudError, match="login\\(\\) before list_keys"):
             await cloud.list_keys()
 
     async def test_paginates_across_pages(self) -> None:

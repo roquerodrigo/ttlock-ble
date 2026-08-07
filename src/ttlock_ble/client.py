@@ -227,8 +227,8 @@ class TTLockClient:
                 cmd.payload_time_calibrate(when),
             ).encrypt_data(self._aes_key)
             resp = await self._exchange(frame)
-            plain = aes_decrypt(resp.data, self._aes_key)
-            echo, status, data = cmd.parse_response_status(plain)
+            plain = self._decrypt_response(resp, "calibrate_time")
+            echo, status, data = self._parse_response_envelope(plain, "calibrate_time")
             log.info(
                 "calibrate_time response: cmd_echo=0x%02x status=%d data=%s",
                 echo,
@@ -256,7 +256,7 @@ class TTLockClient:
                 cmd.payload_get_lock_time(),
             ).encrypt_data(self._aes_key)
             resp = await self._exchange(frame)
-            plain = aes_decrypt(resp.data, self._aes_key)
+            plain = self._decrypt_response(resp, "get_lock_time")
             try:
                 lock_time = cmd.parse_get_lock_time_response(plain)
             except (RuntimeError, ValueError) as exc:
@@ -321,9 +321,12 @@ class TTLockClient:
                 cmd.payload_query_state(),
             ).encrypt_data(self._aes_key)
             resp = await self._exchange(frame)
-            plain = aes_decrypt(resp.data, self._aes_key)
+            plain = self._decrypt_response(resp, "query_state")
             log.debug("state response plaintext: %s", plain.hex())
-            return cmd.parse_lock_status(plain), cmd.parse_state_battery(plain)
+            try:
+                return cmd.parse_lock_status(plain), cmd.parse_state_battery(plain)
+            except ValueError as error:
+                raise TTLockError(f"Failed to parse query_state response: {error}") from error
 
     async def get_auto_lock_time(self) -> int:
         """Read the auto-lock delay in seconds (0 = disabled, -1 = unknown)."""
@@ -416,9 +419,12 @@ class TTLockClient:
                     cmd.payload_operate_log_request(next_seq),
                 ).encrypt_data(self._aes_key)
                 resp = await self._exchange(frame)
-                plain = aes_decrypt(resp.data, self._aes_key)
+                plain = self._decrypt_response(resp, "operate_log")
                 log.debug("operate_log response plaintext: %s", plain.hex())
-                page, last_seq = cmd.parse_operate_log_response(plain)
+                try:
+                    page, last_seq = cmd.parse_operate_log_response(plain)
+                except ValueError as error:
+                    raise TTLockError(f"Failed to parse operate_log response: {error}") from error
                 log.info("Fetched %d log entr(ies), last_sequence=%d", len(page), last_seq)
                 if not page:
                     break
@@ -664,6 +670,26 @@ class TTLockClient:
             return True
         return echo == expected_command
 
+    def _decrypt_response(self, resp: Frame, label: str) -> bytes:
+        """Decrypt a command reply, folding decode failures into `TTLockError`.
+
+        `_exchange` deliberately passes undecodable frames through to the
+        caller, so every command-level decrypt can face garbage bytes; the
+        public contract is that `TTLockClient` raises `TTLockError`, never a
+        raw `ValueError` from the AES layer.
+        """
+        try:
+            return aes_decrypt(resp.data, self._aes_key)
+        except ValueError as error:
+            raise TTLockError(f"Failed to decrypt {label} response: {error}") from error
+
+    def _parse_response_envelope(self, plain: bytes, label: str) -> tuple[int, int, bytes]:
+        """Split the `[echo][status][data]` envelope, folding parse failures into `TTLockError`."""
+        try:
+            return cmd.parse_response_status(plain)
+        except ValueError as error:
+            raise TTLockError(f"Failed to parse {label} response: {error}") from error
+
     async def _check_user_time(self) -> int:
         """Send CHECK_USER_TIME and return the lock's `psFromLock` token."""
         payload = cmd.payload_check_user_time()
@@ -677,8 +703,11 @@ class TTLockClient:
             resp.encrypt,
             resp.data.hex(),
         )
-        plain = aes_decrypt(resp.data, self._aes_key)
-        ps = cmd.parse_check_user_time_response(plain)
+        plain = self._decrypt_response(resp, "check_user_time")
+        try:
+            ps = cmd.parse_check_user_time_response(plain)
+        except (RuntimeError, ValueError) as error:
+            raise TTLockError(f"Failed to validate virtual key with lock: {error}") from error
         log.info("psFromLock = 0x%08x", ps)
         return ps
 
@@ -687,17 +716,20 @@ class TTLockClient:
             self.key.lockVersion, cmd.CMD_AUTO_LOCK_MANAGE, payload
         ).encrypt_data(self._aes_key)
         resp = await self._exchange(frame)
-        plain = aes_decrypt(resp.data, self._aes_key)
+        plain = self._decrypt_response(resp, "auto_lock")
         log.debug("auto_lock response plaintext: %s", plain.hex())
-        return cmd.parse_auto_lock_response(plain)
+        try:
+            return cmd.parse_auto_lock_response(plain)
+        except ValueError as error:
+            raise TTLockError(f"Failed to parse auto_lock response: {error}") from error
 
     async def _keyboard_password_exchange(self, payload: bytes, label: str) -> None:
         frame = Frame.for_lock(
             self.key.lockVersion, cmd.CMD_MANAGE_KEYBOARD_PASSWORD, payload
         ).encrypt_data(self._aes_key)
         resp = await self._exchange(frame)
-        plain = aes_decrypt(resp.data, self._aes_key)
-        echo, status, data = cmd.parse_response_status(plain)
+        plain = self._decrypt_response(resp, label)
+        echo, status, data = self._parse_response_envelope(plain, label)
         log.info(
             "%s response: cmd_echo=0x%02x status=%d data=%s",
             label,
@@ -717,8 +749,8 @@ class TTLockClient:
             cmd.payload_unlock(ps, self.key.unlockKey),
         ).encrypt_data(self._aes_key)
         resp = await self._exchange(frame)
-        plain = aes_decrypt(resp.data, self._aes_key)
-        echo, status, data = cmd.parse_response_status(plain)
+        plain = self._decrypt_response(resp, label)
+        echo, status, data = self._parse_response_envelope(plain, label)
         log.info(
             "%s response: cmd_echo=0x%02x status=%d data=%s",
             label,
