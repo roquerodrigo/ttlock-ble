@@ -106,13 +106,14 @@ from ttlock_ble import LockAdvertisement
 
 for company_id, payload in advertisement_data.manufacturer_data.items():
     state = LockAdvertisement.from_manufacturer_data(company_id, payload)
-    if state is not None and state.lock_mac == key.lockMac:
+    if state is not None and state.lock_mac.lower() == key.lockMac.lower():
         print(state.lock_state, state.battery)
 ```
 
 It returns `None` for anything that is not a stateful TTLock advertisement, and never
-raises. Compare `lock_mac` against the address you expected before trusting the result:
-a payload long enough to decode is not proof that it came from a lock.
+raises. Compare `lock_mac` against the address you expected before trusting the result
+(case-insensitively — MAC casing varies between sources): a payload long enough to
+decode is not proof that it came from a lock.
 
 ## CLI
 

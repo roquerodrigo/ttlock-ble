@@ -291,11 +291,11 @@ class TTLockClient:
     def add_event_listener(self, listener: EventListener) -> None:
         """Register a callback for unsolicited push notifications.
 
-        The callback is invoked synchronously from the BLE notify thread
-        with a `LockEvent` whenever the lock pushes a frame that wasn't
-        a response to a command we sent (keypad unlock, fingerprint
-        unlock, mechanical key, etc.). Keep listeners cheap and offload
-        any work to a queue/task.
+        The callback is invoked synchronously on the asyncio event loop
+        (from bleak's notification callback) with a `LockEvent` whenever
+        the lock pushes a frame that wasn't a response to a command we
+        sent (keypad unlock, fingerprint unlock, mechanical key, etc.).
+        Keep listeners cheap and offload any work to a queue/task.
         """
         if listener not in self._event_listeners:
             self._event_listeners.append(listener)

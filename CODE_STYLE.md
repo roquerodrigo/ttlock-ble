@@ -138,14 +138,15 @@ The SDK ships a `py.typed` marker so downstream consumers get type info.
 
 ## Pre-commit hooks
 
-`pre-commit` is recommended. Add `.pre-commit-config.yaml` mirroring the
-lint commands (ruff format, ruff check, mypy) and install once per clone:
+`.pre-commit-config.yaml` defines local hooks that run the lint commands
+through `uv run` (ruff format, ruff check, mypy), so the hook versions always
+match the pins in `pyproject.toml`. Install once per clone:
 
 ```bash
 pre-commit install
 ```
 
-The hook runs the same gates as CI on every commit. Skip it only on
+The hooks run the same gates as CI on every commit. Skip them only on an
 emergency `git commit --no-verify` and immediately re-run the lint commands.
 
 ## Conventional commits
@@ -173,7 +174,7 @@ and generate `CHANGELOG.md`:
 ## Packaging
 
 - Build backend: `hatchling`. Wheel and sdist contain `src/ttlock_ble`.
-- `requires-python = ">=3.11"`. Don't bump this without a `BREAKING CHANGE:`
+- `requires-python = ">=3.12"`. Don't bump this without a `BREAKING CHANGE:`
   footer.
 - Public dependencies: keep them minimal and use `>=` lower bounds, not
   pins.
@@ -182,10 +183,11 @@ and generate `CHANGELOG.md`:
 
 ## Releasing
 
-- `release-please` runs on `main` and opens a release-PR with the next
-  version + `CHANGELOG.md`. Merging that PR triggers the publish job
-  (sdist + wheel via `python -m build`, published to PyPI via the
-  `pypi` GitHub Environment + Trusted Publisher — no token in repo secrets).
+- `release-please` (driven by `.github/workflows/release.yml` after a green
+  CI run on `main`) opens a release-PR with the next version +
+  `CHANGELOG.md`. Merging that PR triggers the publish job, which builds
+  the sdist + wheel with `uv build` and uploads them to PyPI using the
+  `PYPI_API_TOKEN` repository secret.
 - Don't manually edit `pyproject.toml` `version` — release-please owns it.
 
 ## Testing
@@ -193,8 +195,9 @@ and generate `CHANGELOG.md`:
 - Tests live in `tests/`. `uv run pytest` runs the suite. Aim for high
   coverage on protocol/crypto/cloud layers since they're the byte-level
   surface most likely to regress silently.
-- Hardware-dependent tests (real BLE lock) are gated behind an env var and
-  skipped in CI; pure unit tests use captured byte fixtures.
+- The suite is network- and hardware-free: BLE and HTTP are mocked at the
+  boundary, and byte-level assertions use synthetic golden fixtures derived
+  with the SDK's own protocol/crypto helpers.
 
 ## Linting and verification
 
@@ -214,6 +217,6 @@ and generate `CHANGELOG.md`:
   uv run pytest
   ```
 
-  CI mirrors this via the reusable workflows referenced from
-  `.github/workflows/ci.yml` (`sdk-lint.yml`, `sdk-tests.yml`,
-  `sdk-codeql.yml`).
+  CI mirrors this: `.github/workflows/ci.yml` calls the reusable
+  `python-lint.yml` (ruff + mypy) and `python-test.yml` (pytest) workflows
+  from `roquerodrigo/workflows`, and `codeql.yml` runs static analysis.
