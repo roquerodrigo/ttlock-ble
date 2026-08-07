@@ -101,7 +101,6 @@ ignore = [
     "EM101",   # raise(str) is fine — inlining helps grep, no message variable needed
     "EM102",   # same for f-strings inside raise
     "ISC001",  # incompatible with the formatter
-    "PLC0415", # lazy imports break a couple of circular deps; intentional
     "PLR2004", # magic byte values are the protocol — extracting them all hurts readability
     "TID252",  # relative imports between same-package siblings are the house style
     "TRY003",  # long exception messages are OK when the message carries diagnostics
