@@ -2,7 +2,7 @@
 
 All three primitives were reverse-engineered from `libLockCore.so` (the
 JNI library shipped inside the DLock-XP 1.6.0 APK) and validated against
-captured byte fixtures from a real cloud sync.
+the official app's cloud sync wire format.
 """
 
 from __future__ import annotations
@@ -115,7 +115,7 @@ def hex_key_to_bytes(hex_str: str) -> bytes:
     """Convert the cloud's `aesKeyStr` to raw bytes.
 
     Accepts the comma-separated hex form the cloud uses
-    (`"2c,3d,23,..."`, mirrors `DigitUtil.convertAesKeyStrToBytes`),
+    (`"a1,b2,c3,..."`, mirrors `DigitUtil.convertAesKeyStrToBytes`),
     a dot-separated equivalent, or a 32-char continuous hex string.
     """
     s = hex_str.strip()

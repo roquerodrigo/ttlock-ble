@@ -93,12 +93,12 @@ class TestVirtualKey:
         return {
             "keyId": "1",
             "lockId": "2",
-            "lockMac": "E9:EF:A0:BD:22:1D",
+            "lockMac": "AA:BB:CC:11:22:33",
             "lockAlias": "Door",
             "lockName": "DLock-XP",
             "lockVersion": {"protocolType": 5, "protocolVersion": 3, "scene": 2},
-            "aesKeyStr": "2c,3d,23,5a,12,9c,74,0a,89,d5,0c,24,a5,3b,83,66",
-            "lockKey": "375773543",
+            "aesKeyStr": "a1,b2,c3,d4,e5,f6,07,18,29,3a,4b,5c,6d,7e,8f,90",
+            "lockKey": "246813579",
             "userType": "110301",
         }
 
@@ -148,7 +148,7 @@ class TestFrameProtocol:
         assert frame.decrypt_data(b"\x00" * 16) == b"plain"
 
     def test_decrypt_data_aes_path(self) -> None:
-        key = hex_key_to_bytes("2c,3d,23,5a,12,9c,74,0a,89,d5,0c,24,a5,3b,83,66")
+        key = hex_key_to_bytes("a1,b2,c3,d4,e5,f6,07,18,29,3a,4b,5c,6d,7e,8f,90")
         plain = Frame(5, 3, 2, 1, 1, 0x05, 0x00, b"hi").encrypt_data(key)
         # encrypt_data sets ENCRYPT_PLAIN (0x00); flip to AES to hit the decrypt branch.
         aes_frame = Frame(5, 3, 2, 1, 1, 0x05, 0x02, plain.data)
@@ -189,7 +189,7 @@ class TestCrypto:
             hex_key_to_bytes("not-a-key")
 
     def test_hex_key_continuous_form(self) -> None:
-        assert len(hex_key_to_bytes("2c3d235a129c740a89d50c24a53b8366")) == 16
+        assert len(hex_key_to_bytes("a1b2c3d4e5f60718293a4b5c6d7e8f90")) == 16
 
 
 def _default_crc():

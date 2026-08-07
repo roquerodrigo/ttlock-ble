@@ -6,8 +6,8 @@ import pytest
 
 from ttlock_ble import LockAdvertisement, LockState
 
-MAC_TAIL = bytes.fromhex("1d22bda0efe9")
-LOCK_MAC = "E9:EF:A0:BD:22:1D"
+MAC_TAIL = bytes.fromhex("332211ccbbaa")
+LOCK_MAC = "AA:BB:CC:11:22:33"
 
 
 def v3_manufacturer_data(flags: int, battery: int = 87) -> tuple[int, bytes]:

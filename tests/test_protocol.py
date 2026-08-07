@@ -328,11 +328,11 @@ class TestOperationLog:
         from ttlock_ble.constants import LogOperate
 
         # record_type=55 carries MAC (LE) + keyId + accessory_battery.
-        mac_le = bytes.fromhex("1d22bda0efe9")
+        mac_le = bytes.fromhex("332211ccbbaa")
         record = self._header(LogOperate.WIRELESS_KEY_FOB) + mac_le + bytes([3, 88])
         entries, _ = cmd.parse_operate_log_response(self._wrap(record))
         e = entries[0]
-        assert e.password == "e9:ef:a0:bd:22:1d"
+        assert e.password == "aa:bb:cc:11:22:33"
         assert e.key_id == 3
         assert e.accessory_battery == 88
 

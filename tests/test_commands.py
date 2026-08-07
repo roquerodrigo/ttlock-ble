@@ -178,10 +178,10 @@ class TestLogRecordVariants:
         assert entries[0].accessory_battery == 77
 
     def test_bong_unlock_mac_record(self) -> None:
-        mac = bytes([0x1D, 0x22, 0xBD, 0xA0, 0xEF, 0xE9])
+        mac = bytes([0x33, 0x22, 0x11, 0xCC, 0xBB, 0xAA])
         plain = _log_frame_plain([self._record(19, mac)], sequence=3)
         entries, _ = cmd.parse_operate_log_response(plain)
-        assert entries[0].password == "e9:ef:a0:bd:22:1d"
+        assert entries[0].password == "aa:bb:cc:11:22:33"
 
     def test_wireless_fob_record(self) -> None:
         mac = bytes([0x01, 0x02, 0x03, 0x04, 0x05, 0x06])

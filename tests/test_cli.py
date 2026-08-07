@@ -28,16 +28,16 @@ def _virtual_key() -> VirtualKey:
     return VirtualKey(
         keyId=1,
         lockId=2,
-        lockMac="E9:EF:A0:BD:22:1D",
-        lockAlias="Apto. 2616",
+        lockMac="AA:BB:CC:11:22:33",
+        lockAlias="Test Lock",
         lockName="DLock-XP",
         lockVersion=LockVersion(protocolType=5, protocolVersion=3, scene=2, groupId=1, orgId=1),
-        aesKeyStr="2c,3d,23,5a,12,9c,74,0a,89,d5,0c,24,a5,3b,83,66",
-        unlockKey="375773543",
+        aesKeyStr="a1,b2,c3,d4,e5,f6,07,18,29,3a,4b,5c,6d,7e,8f,90",
+        unlockKey="246813579",
         lockFlagPos=0,
         timezoneRawOffSet=-10800000,
         userType="110301",
-        adminPs="422531259",
+        adminPs="135792468",
     )
 
 
@@ -204,7 +204,7 @@ class TestBleCommands:
         client = MagicMock()
         client.lock = AsyncMock()
         self._patch_client(cli_module, monkeypatch, client)
-        result = runner.invoke(cli_module.app, ["lock", "Apto. 2616", "-v"])
+        result = runner.invoke(cli_module.app, ["lock", "Test Lock", "-v"])
         assert result.exit_code == 0, result.output
         assert "locked" in result.output
 
@@ -214,7 +214,7 @@ class TestBleCommands:
         client = MagicMock()
         client.query_state = AsyncMock(return_value=(LockState.LOCKED, 87))
         self._patch_client(cli_module, monkeypatch, client)
-        result = runner.invoke(cli_module.app, ["state", "E9:EF:A0:BD:22:1D", "-v"])
+        result = runner.invoke(cli_module.app, ["state", "AA:BB:CC:11:22:33", "-v"])
         assert result.exit_code == 0, result.output
         assert "LOCKED" in result.output
         assert "87%" in result.output

@@ -212,7 +212,7 @@ class TestListKeys:
         return {
             "keyId": key_id,
             "lockId": 100 + key_id,
-            "lockMac": "E9:EF:A0:BD:22:1D",
+            "lockMac": "AA:BB:CC:11:22:33",
             "lockAlias": f"Door {key_id}",
             "lockName": "DLock-XP",
             "lockVersion": {
@@ -222,8 +222,8 @@ class TestListKeys:
                 "groupId": 1,
                 "orgId": 1,
             },
-            "aesKeyStr": "2c,3d,23,5a,12,9c,74,0a,89,d5,0c,24,a5,3b,83,66",
-            "lockKey": "375773543",
+            "aesKeyStr": "a1,b2,c3,d4,e5,f6,07,18,29,3a,4b,5c,6d,7e,8f,90",
+            "lockKey": "246813579",
             "userType": "110301",
         }
 
