@@ -39,7 +39,7 @@ Issues = "https://github.com/roquerodrigo/ttlock-ble/issues"
 
 [build-system]
 requires = ["hatchling"]
-build-backend = "hatchling.build"
+build-backend = "hatchling*"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ttlock_ble"]
@@ -63,12 +63,12 @@ dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
-    "pre-commit==4.6.1",
-    "hatchling==1.28.0",
+    "pre-commit==4.6.2",
+    "hatchling==1.32.0",
     "ttlock-ble[cli]",
 ]
 lint = [
-    "ruff==0.16.1",
+    "ruff==0.16.3",
     "mypy==2.3.0",
 ]
 
