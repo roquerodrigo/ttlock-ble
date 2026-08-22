@@ -7,7 +7,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 def sdist_paths() -> set[str]:
     builder = SdistBuilder(str(PROJECT_ROOT))
-    return {included.distribution_path for included in builder.recurse_included_files()}
+    return {
+        included.distribution_path.replace("\\", "/")
+        for included in builder.recurse_included_files()
+    }
 
 
 def test_sdist_ships_the_importable_package():
