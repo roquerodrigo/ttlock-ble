@@ -52,6 +52,7 @@ EXPECTED_CLIENT_MEMBERS = frozenset(
         "remove_event_listener",
         "scan_timeout",
         "set_auto_lock_time",
+        "set_lock_sound",
         "sync_time",
         "unlock",
     }

@@ -29,6 +29,12 @@ class TestPayloadBuilders:
         assert int.from_bytes(out[0:4], "big") == 123456
         assert int.from_bytes(out[7:11], "big") == 7
 
+    def test_set_lock_sound_on(self) -> None:
+        assert cmd.payload_set_lock_sound(enabled=True) == bytes([0x02, 0x01])
+
+    def test_set_lock_sound_off(self) -> None:
+        assert cmd.payload_set_lock_sound(enabled=False) == bytes([0x02, 0x00])
+
     def test_unlock_uses_explicit_timestamp(self) -> None:
         out = cmd.payload_unlock(0x10, "20", ts_ms=2000)
         assert int.from_bytes(out[0:4], "big") == 0x10 + 20
@@ -89,6 +95,18 @@ class TestParsers:
     def test_check_user_time_short_payload_raises(self) -> None:
         with pytest.raises(ValueError, match="too short"):
             cmd.parse_check_user_time_response(bytes([0x55, cmd.RESPONSE_SUCCESS, 0x01]))
+
+    def test_check_admin_returns_token(self) -> None:
+        plain = bytes([0x41, cmd.RESPONSE_SUCCESS]) + (0x87654321).to_bytes(4, "big")
+        assert cmd.parse_check_admin_response(plain) == 0x87654321
+
+    def test_check_admin_failure_raises(self) -> None:
+        with pytest.raises(RuntimeError, match="FAILED"):
+            cmd.parse_check_admin_response(bytes([0x41, cmd.RESPONSE_FAILED, 0xFF]))
+
+    def test_check_admin_short_payload_raises(self) -> None:
+        with pytest.raises(ValueError, match="too short"):
+            cmd.parse_check_admin_response(bytes([0x41, cmd.RESPONSE_SUCCESS, 0x01]))
 
     def test_lock_status_failure_returns_none(self) -> None:
         assert cmd.parse_lock_status(bytes([0x14, cmd.RESPONSE_FAILED])) is None

@@ -381,6 +381,30 @@ class TTLockClient:
                 next_seq = last_seq
             return all_entries
 
+    async def set_lock_sound(self, *, enabled: bool) -> None:
+        """Turn the keypad/lock beep on or off.
+
+        Admin-gated: `self.key` needs `is_admin()` true, or CHECK_ADMIN
+        fails the same way a missing handshake would (see
+        `_admin_handshake`).
+
+        There is no corresponding read/status command - neither
+        `query_state()` nor the BLE advertisement payload carries the
+        sound setting, and no query opcode for it has been found. A
+        raise-free return only means the lock accepted the frame; it is
+        not a live readback. Callers that need to display the current
+        setting must track the value they last set optimistically (e.g.
+        cache it themselves) rather than ask the lock.
+        """
+        async with self._command_lock:
+            await self._admin_handshake()
+            resp = await self._transport.exchange(
+                self._frame(cmd.CMD_SET_LOCK_SOUND, cmd.payload_set_lock_sound(enabled=enabled))
+            )
+            plain = self._decrypt_response(resp, "set_lock_sound")
+            self._require_success(plain, "set_lock_sound")
+        log.info("lock sound set to %s", "on" if enabled else "off")
+
     def _frame(self, command: int, payload: bytes) -> Frame:
         """Build and encrypt one command frame for this lock's protocol version."""
         return Frame.for_lock(self.key.lockVersion, command, payload).encrypt_data(self._aes_key)
@@ -472,6 +496,35 @@ class TTLockClient:
             raise TTLockError(f"Failed to validate virtual key with lock: {error}") from error
         log.info("psFromLock = 0x%08x", ps)
         return ps
+
+    async def _admin_handshake(self) -> None:
+        """Run CHECK_ADMIN then CHECK_RANDOM - the extra handshake admin-gated commands need.
+
+        Unlike `_check_user_time` (used by unlock/lock/auto-lock/passcode),
+        nothing else in this client needs it yet - `set_lock_sound` is the
+        first admin-gated command - but it's written as reusable
+        infrastructure for whatever else turns out to need admin
+        authorization, not something specific to sound.
+        """
+        resp = await self._transport.exchange(
+            self._frame(
+                cmd.CMD_CHECK_ADMIN,
+                cmd.payload_check_admin(self.key.uid, self.key.adminPs, self.key.lockFlagPos),
+            )
+        )
+        plain = self._decrypt_response(resp, "check_admin")
+        try:
+            ps_from_lock = cmd.parse_check_admin_response(plain)
+        except (RuntimeError, ValueError) as error:
+            raise TTLockError(f"Failed to authorize as admin: {error}") from error
+
+        resp = await self._transport.exchange(
+            self._frame(
+                cmd.CMD_CHECK_RANDOM, cmd.payload_check_random(ps_from_lock, self.key.unlockKey)
+            )
+        )
+        plain = self._decrypt_response(resp, "check_random")
+        self._require_success(plain, "check_random")
 
     async def _auto_lock_exchange(self, payload: bytes) -> tuple[int, int | None]:
         resp = await self._transport.exchange(self._frame(cmd.CMD_AUTO_LOCK_MANAGE, payload))

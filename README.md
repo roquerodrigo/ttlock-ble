@@ -136,6 +136,7 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock lock <lock>` | Lock a lock over Bluetooth |
 | `ttlock state <lock>` | Query current state and battery |
 | `ttlock battery <lock>` | Show battery percentage |
+| `ttlock sound <lock> <on\|off>` | Turn the keypad/lock beep on or off (admin eKey required) |
 
 Typical first run: `ttlock sync` → (if prompted) check email → `ttlock verify <code>` →
 `ttlock sync` again → `ttlock unlock <lock>`.
@@ -154,6 +155,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `get_auto_lock_time()` / `set_auto_lock_time(seconds)` | Read / set the auto-lock delay |
 | `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Manage keypad passcodes |
 | `get_operation_log()` | Paginated on-device operation log (`list[LogEntry]`) |
+| `set_lock_sound(enabled)` | Turn the keypad/lock beep on or off (admin eKey required) |
 | `get_lock_time()` / `calibrate_time()` / `sync_time()` | Read / align the lock's clock |
 | `add_event_listener(cb)` / `remove_event_listener(cb)` | Subscribe to `LockEvent` pushes |
 | `is_connected` | Property — `True` while a connection is open |

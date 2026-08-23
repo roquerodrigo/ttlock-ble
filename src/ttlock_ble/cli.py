@@ -179,6 +179,22 @@ def battery(
     typer.echo(f"battery: {batt}%")
 
 
+@app.command()
+def sound(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    state: str = typer.Argument(..., help="'on' or 'off'"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Turn the keypad/lock beep on or off (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    if state not in {"on", "off"}:
+        raise typer.BadParameter("state must be 'on' or 'off'")
+    key = _resolve_key(target)
+    asyncio.run(_run_sound(key, enabled=state == "on"))
+    typer.echo(f"✓ sound {state}")
+
+
 async def _run_unlock(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.unlock()
@@ -192,6 +208,11 @@ async def _run_lock(key: VirtualKey) -> None:
 async def _run_state(key: VirtualKey) -> tuple[LockState | None, int | None]:
     async with TTLockClient(key) as c:
         return await c.query_state()
+
+
+async def _run_sound(key: VirtualKey, *, enabled: bool) -> None:
+    async with TTLockClient(key) as c:
+        await c.set_lock_sound(enabled=enabled)
 
 
 if (
