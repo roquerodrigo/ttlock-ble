@@ -5,8 +5,9 @@ official Android SDK. We focus on `lockType=5` (V3), which covers virtually
 every current DLock-XP / TTLock smart-lock SKU.
 
 One submodule per command family — `session` for the handshake, `control`
-for the bolt, `clock`, `auto_lock`, `passcode` and `operate_log` for the
-rest — over the shared `opcodes`, `envelope` and `encoding` primitives.
+for the bolt, `clock`, `auto_lock`, `passcode`, `operate_log` and
+`lock_sound` for the rest — over the shared `opcodes`, `envelope` and
+`encoding` primitives.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from .control import (
     payload_unlock,
 )
 from .envelope import RESPONSE_FAILED, RESPONSE_SUCCESS, parse_response_status
+from .lock_sound import payload_set_lock_sound
 from .opcodes import (
     APICMD_LOCK_BY_ADMIN,
     APICMD_LOCK_BY_USER,
@@ -40,6 +42,7 @@ from .opcodes import (
     CMD_QUERY_STATE,
     CMD_RESPONSE,
     CMD_SEARCH_DEVICE_FEATURE,
+    CMD_SET_LOCK_SOUND,
     CMD_SWITCH,
     CMD_TIME_CALIBRATE,
     CMD_UNLOCK,
@@ -48,6 +51,7 @@ from .operate_log import parse_operate_log_response, payload_operate_log_request
 from .passcode import payload_passcode_add, payload_passcode_clear, payload_passcode_delete
 from .session import (
     VENDOR,
+    parse_check_admin_response,
     parse_check_user_time_response,
     payload_check_admin,
     payload_check_random,
@@ -73,6 +77,7 @@ __all__ = [
     "CMD_QUERY_STATE",
     "CMD_RESPONSE",
     "CMD_SEARCH_DEVICE_FEATURE",
+    "CMD_SET_LOCK_SOUND",
     "CMD_SWITCH",
     "CMD_TIME_CALIBRATE",
     "CMD_UNLOCK",
@@ -82,6 +87,7 @@ __all__ = [
     "UNLOCKED",
     "VENDOR",
     "parse_auto_lock_response",
+    "parse_check_admin_response",
     "parse_check_user_time_response",
     "parse_get_lock_time_response",
     "parse_lock_status",
@@ -100,6 +106,7 @@ __all__ = [
     "payload_passcode_clear",
     "payload_passcode_delete",
     "payload_query_state",
+    "payload_set_lock_sound",
     "payload_time_calibrate",
     "payload_unlock",
 ]

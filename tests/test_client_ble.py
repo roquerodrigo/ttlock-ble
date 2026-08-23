@@ -395,6 +395,54 @@ class TestCommands:
         fake.reply_for_next = [_resp_frame(key, cmd.CMD_AUTO_LOCK_MANAGE, plain)]
         await client.set_auto_lock_time(15)
 
+    async def test_set_lock_sound_on(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_SET_LOCK_SOUND, _status_plain(cmd.CMD_SET_LOCK_SOUND)),
+        ]
+        await client.set_lock_sound(enabled=True)
+
+    async def test_set_lock_sound_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_SET_LOCK_SOUND,
+                _status_plain(cmd.CMD_SET_LOCK_SOUND, cmd.RESPONSE_FAILED),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to set_lock_sound"):
+            await client.set_lock_sound(enabled=False)
+
+    async def test_set_lock_sound_admin_check_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.set_lock_sound(enabled=True)
+
+    async def test_set_lock_sound_check_random_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_RANDOM,
+                _status_plain(cmd.CMD_CHECK_RANDOM, cmd.RESPONSE_FAILED),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to check_random"):
+            await client.set_lock_sound(enabled=True)
+
 
 class TestExchangeTimeout:
     async def test_recv_timeout_wrapped(self) -> None:
@@ -599,3 +647,8 @@ def _check_user_time_plain() -> bytes:
     """Build a CHECK_USER_TIME response the client can parse for psFromLock."""
     # echo, status, then a 4-byte psFromLock token (big-endian).
     return bytes([cmd.CMD_CHECK_USER_TIME, 0x01]) + (0x12345678).to_bytes(4, "big")
+
+
+def _check_admin_plain() -> bytes:
+    """Build a CHECK_ADMIN response the client can parse for its random token."""
+    return bytes([cmd.CMD_CHECK_ADMIN, 0x01]) + (0x87654321).to_bytes(4, "big")

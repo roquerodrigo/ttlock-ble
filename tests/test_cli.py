@@ -233,3 +233,35 @@ class TestBleCommands:
         result = runner.invoke(cli_module.app, ["battery", "2"])
         assert result.exit_code == 1
         assert "unknown" in result.output
+
+    def test_sound_on(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.set_lock_sound = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["sound", "2", "on", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "sound on" in result.output
+        client.set_lock_sound.assert_awaited_once_with(enabled=True)
+
+    def test_sound_off(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.set_lock_sound = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["sound", "2", "off"])
+        assert result.exit_code == 0, result.output
+        assert "sound off" in result.output
+        client.set_lock_sound.assert_awaited_once_with(enabled=False)
+
+    def test_sound_invalid_state_errors(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.set_lock_sound = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["sound", "2", "loud"])
+        assert result.exit_code != 0
+        client.set_lock_sound.assert_not_awaited()

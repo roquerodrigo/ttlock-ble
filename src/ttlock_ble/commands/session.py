@@ -80,3 +80,17 @@ def parse_check_user_time_response(plaintext: bytes) -> int:
     if len(data) < 4:
         raise ValueError(f"checkUserTime payload too short: {plaintext.hex()}")
     return int.from_bytes(data[:4], "big")
+
+
+def parse_check_admin_response(plaintext: bytes) -> int:
+    """Extract the lock-issued random token from the CHECK_ADMIN response.
+
+    Wire layout: `[cmd_echo=0x41][status][token 4 BE][...]`. Raises if
+    status != SUCCESS, mirroring `parse_check_user_time_response`.
+    """
+    _cmd_echo, status, data = parse_response_status(plaintext)
+    if status != RESPONSE_SUCCESS:
+        raise RuntimeError(f"checkAdmin FAILED: status={status:#x} err={data.hex()}")
+    if len(data) < 4:
+        raise ValueError(f"checkAdmin payload too short: {plaintext.hex()}")
+    return int.from_bytes(data[:4], "big")
