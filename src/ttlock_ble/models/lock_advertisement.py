@@ -16,6 +16,7 @@ _LOCK_TYPE_V2S = 3
 _UNLOCKED_BIT = 0x01
 _NEW_RECORDS_BIT = 0x02
 _SETTING_MODE_BIT = 0x04
+_DORMANT_BIT = 0x10
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,14 +33,27 @@ class LockAdvertisement:
     the decompiled vendor SDK. Locks older than protocol type 5 (and the
     V2S family) stop the layout before the flags byte and carry no state
     at all — `from_manufacturer_data` returns `None` for those.
+
+    `lock_state` is `None` while `is_dormant` is set. The firmware clears
+    the bolt bit whenever it powers the radio down, so a dormant frame
+    reads exactly like a locked one no matter where the bolt actually is.
+    Captured on a lock left unlocked with auto-lock disabled, the flags
+    byte was the only byte to change as it went to sleep:
+
+        05 03 02 01 4c …  awake   -> unlocked, and the bolt was open
+        05 03 02 10 4c …  dormant -> bolt untouched, bit 0x01 cleared
+
+    Reporting that as `LOCKED` is what made an idle lock claim it had
+    re-locked itself a minute or two after every unlock.
     """
 
     protocol_type: int
     protocol_version: int
     scene: int
-    lock_state: LockState
+    lock_state: LockState | None
     has_new_records: bool
     is_setting_mode: bool
+    is_dormant: bool
     battery: int
     lock_mac: str
 
@@ -59,9 +73,11 @@ class LockAdvertisement:
 
         Returns `None` — never raises — for anything that is not a
         stateful TTLock advertisement: a short payload, firmware-update
-        mode, or a lock family whose layout has no flags byte. Callers
-        should compare `lock_mac` against the address they expected
-        before trusting the decoded state.
+        mode, or a lock family whose layout has no flags byte. A decoded
+        advertisement still carries `lock_state=None` when the lock is
+        dormant; battery and the remaining flags stay valid there.
+        Callers should compare `lock_mac` against the address they
+        expected before trusting the decoded state.
         """
         raw = company_id.to_bytes(2, "little") + bytes(payload)
         if len(raw) < _MIN_MANUFACTURER_LENGTH:
@@ -91,12 +107,20 @@ class LockAdvertisement:
             protocol_type=protocol_type,
             protocol_version=protocol_version,
             scene=scene,
-            lock_state=LockState.UNLOCKED if flags & _UNLOCKED_BIT else LockState.LOCKED,
+            lock_state=_decode_lock_state(flags),
             has_new_records=bool(flags & _NEW_RECORDS_BIT),
             is_setting_mode=bool(flags & _SETTING_MODE_BIT),
+            is_dormant=bool(flags & _DORMANT_BIT),
             battery=raw[flags_offset + 1],
             lock_mac=_decode_mac(raw[-_MAC_LENGTH:]),
         )
+
+
+def _decode_lock_state(flags: int) -> LockState | None:
+    """Read the bolt bit, or `None` when the dormancy bit makes it meaningless."""
+    if flags & _DORMANT_BIT:
+        return None
+    return LockState.UNLOCKED if flags & _UNLOCKED_BIT else LockState.LOCKED
 
 
 def _decode_mac(tail: bytes) -> str:
