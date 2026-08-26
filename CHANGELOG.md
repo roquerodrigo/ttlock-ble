@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.2.0](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.11...v0.2.0) (2026-08-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **advertisement:** LockAdvertisement.lock_state is now LockState | None. Consumers must treat None as "state unknown" rather than assume a bolt position.
+
+### Features
+
+* **packaging:** require Python 3.14 ([37a2bc8](https://github.com/roquerodrigo/ttlock-ble/commit/37a2bc833ef26f88d8df3d22a24c1170641fa58b))
+
+
+### Bug Fixes
+
+* **advertisement:** stop reporting a dormant lock as locked ([e49bf1c](https://github.com/roquerodrigo/ttlock-ble/commit/e49bf1c7b7ff7c09f5eb96387cd037a0abc4e3c2))
+* **build:** restore the hatchling build backend identifier ([67ba654](https://github.com/roquerodrigo/ttlock-ble/commit/67ba654a7384243b17424192e9419df72932472f))
+
+
+### Code Refactoring
+
+* **ble:** move the BLE link out of TTLockClient into its own layer ([3e4d055](https://github.com/roquerodrigo/ttlock-ble/commit/3e4d055543e2f87fef21c336da6ef6989668f315))
+* **commands:** decode operate-log tails through a dispatch table ([a5a1402](https://github.com/roquerodrigo/ttlock-ble/commit/a5a1402021cdd2f3edf42ee02fdea615fdd57ccb))
+
+
+### Dependencies
+
+* **deps:** bump the python-deps group across 1 directory with 6 updates ([228d237](https://github.com/roquerodrigo/ttlock-ble/commit/228d237a299f3f78af3f4d4476472b25085c5a6b))
+
+
+### Miscellaneous Chores
+
+* add an editorconfig ([4a8b21f](https://github.com/roquerodrigo/ttlock-ble/commit/4a8b21f96d7405995594638066965251a26cde9f))
+
 ## [0.1.11](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.10...v0.1.11) (2026-08-07)
 
 

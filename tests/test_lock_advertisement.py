@@ -48,7 +48,7 @@ class TestV3Layout:
             (0x02, (False, True, False)),
             (0x04, (False, False, True)),
             (0x07, (True, True, True)),
-            (0xFF, (True, True, True)),
+            (0xEF, (True, True, True)),
         ],
     )
     def test_flag_bits(self, flags: int, expected: tuple[bool, bool, bool]) -> None:
@@ -60,6 +60,50 @@ class TestV3Layout:
             adv.is_setting_mode,
         )
         assert decoded == expected
+
+
+class TestDormancy:
+    def test_dormant_frame_reports_no_state(self) -> None:
+        adv = LockAdvertisement.from_manufacturer_data(*v3_manufacturer_data(0x10))
+        assert adv is not None
+        assert adv.is_dormant is True
+        assert adv.lock_state is None
+
+    def test_bolt_bit_under_dormancy_is_discarded(self) -> None:
+        adv = LockAdvertisement.from_manufacturer_data(*v3_manufacturer_data(0x11))
+        assert adv is not None
+        assert adv.lock_state is None
+
+    def test_dormant_frame_keeps_the_remaining_fields(self) -> None:
+        adv = LockAdvertisement.from_manufacturer_data(*v3_manufacturer_data(0x16))
+        assert adv is not None
+        assert adv.has_new_records is True
+        assert adv.is_setting_mode is True
+        assert adv.battery == 87
+        assert adv.lock_mac == LOCK_MAC
+
+    def test_awake_frame_is_not_dormant(self) -> None:
+        adv = LockAdvertisement.from_manufacturer_data(*v3_manufacturer_data(0x01))
+        assert adv is not None
+        assert adv.is_dormant is False
+        assert adv.lock_state is LockState.UNLOCKED
+
+    def test_captured_sleep_transition_leaves_the_bolt_unreported(self) -> None:
+        """Both frames come from one lock left unlocked; only the flags byte differs."""
+        awake = LockAdvertisement.from_manufacturer_data(
+            0x0305,
+            bytes.fromhex("02014cb000f4f95365") + MAC_TAIL,
+        )
+        dormant = LockAdvertisement.from_manufacturer_data(
+            0x0305,
+            bytes.fromhex("02104cb000f4f95365") + MAC_TAIL,
+        )
+        assert awake is not None
+        assert dormant is not None
+        assert awake.lock_state is LockState.UNLOCKED
+        assert dormant.lock_state is None
+        assert dormant.battery == awake.battery
+        assert dormant.lock_mac == awake.lock_mac
 
 
 class TestAlternateLayout:
