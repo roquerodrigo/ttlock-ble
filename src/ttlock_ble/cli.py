@@ -1,4 +1,4 @@
-"""Typer-powered `ttlock` CLI: sync, verify, list, unlock, lock, state, battery."""
+"""Typer-powered `ttlock` CLI: sync, verify, list, unlock, lock, state, battery, device-info."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from ._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from .client import TTLockClient
 from .cloud import TTLockCloud
 from .exceptions import CloudError
-from .models import VirtualKey
+from .models import DeviceInfo, VirtualKey
 
 if TYPE_CHECKING:
     from .constants import LockState
@@ -195,6 +195,24 @@ def sound(
     typer.echo(f"✓ sound {state}")
 
 
+@app.command("device-info")
+def device_info(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Read the standard BLE Device Information Service fields (no handshake needed)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    info = asyncio.run(_run_device_info(key))
+    typer.echo(f"manufacturer:      {info.manufacturer or '?'}")
+    typer.echo(f"model:             {info.model or '?'}")
+    typer.echo(f"serial number:     {info.serial_number or '?'}")
+    typer.echo(f"hardware revision: {info.hardware_revision or '?'}")
+    typer.echo(f"firmware revision: {info.firmware_revision or '?'}")
+    typer.echo(f"software revision: {info.software_revision or '?'}")
+
+
 async def _run_unlock(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.unlock()
@@ -213,6 +231,11 @@ async def _run_state(key: VirtualKey) -> tuple[LockState | None, int | None]:
 async def _run_sound(key: VirtualKey, *, enabled: bool) -> None:
     async with TTLockClient(key) as c:
         await c.set_lock_sound(enabled=enabled)
+
+
+async def _run_device_info(key: VirtualKey) -> DeviceInfo:
+    async with TTLockClient(key) as c:
+        return await c.get_device_info()
 
 
 if (

@@ -16,6 +16,7 @@ EXPECTED_EXPORTS = frozenset(
     {
         "AutoLockOperate",
         "CloudError",
+        "DeviceInfo",
         "KeyboardPwdType",
         "LockAdvertisement",
         "LockEvent",
@@ -43,6 +44,7 @@ EXPECTED_CLIENT_MEMBERS = frozenset(
         "disconnect",
         "from_ble_device",
         "get_auto_lock_time",
+        "get_device_info",
         "get_lock_time",
         "get_operation_log",
         "is_connected",

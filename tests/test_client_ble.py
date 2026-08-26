@@ -16,13 +16,19 @@ import pytest
 import ttlock_ble.ble.device_finder as device_finder_mod
 import ttlock_ble.ble.transport as transport_mod
 from tests.conftest import make_virtual_key
-from ttlock_ble import TTLockClient, VirtualKey
+from ttlock_ble import DeviceInfo, TTLockClient, VirtualKey
 from ttlock_ble import commands as cmd
 from ttlock_ble.ble import find_lock_device
 from ttlock_ble.ble.constants import (
     BONG_NOTIFY,
     BONG_SERVICE,
     BONG_WRITE,
+    DEVICE_INFO_FIRMWARE_REVISION_CHAR,
+    DEVICE_INFO_HARDWARE_REVISION_CHAR,
+    DEVICE_INFO_MANUFACTURER_CHAR,
+    DEVICE_INFO_MODEL_CHAR,
+    DEVICE_INFO_SERIAL_NUMBER_CHAR,
+    DEVICE_INFO_SOFTWARE_REVISION_CHAR,
     TTL_NOTIFY,
     TTL_SERVICE,
     TTL_WRITE,
@@ -88,6 +94,8 @@ class FakeBleakClient:
         self.battery_raises = False
         self.disconnected = False
         self.stopped_notify = False
+        self.char_values: dict[str, bytes] = {}
+        self.missing_chars: set[str] = set()
 
     async def start_notify(self, _char: object, cb) -> None:
         self._notify_cb = cb
@@ -95,10 +103,12 @@ class FakeBleakClient:
     async def stop_notify(self, _char: object) -> None:
         self.stopped_notify = True
 
-    async def read_gatt_char(self, _uuid: str) -> bytes:
+    async def read_gatt_char(self, uuid: str) -> bytes:
         if self.battery_raises:
             raise RuntimeError("no battery char")
-        return b"\x64"
+        if uuid in self.missing_chars:
+            raise RuntimeError(f"characteristic {uuid} not found")
+        return self.char_values.get(uuid, b"\x64")
 
     async def write_gatt_char(self, _char: object, data: bytes, *, response: bool) -> None:  # noqa: ARG002 -- matches bleak's signature; callers pass response= by keyword
         self.written.append(bytes(data))
@@ -442,6 +452,87 @@ class TestCommands:
         ]
         with pytest.raises(TTLockError, match="Failed to check_random"):
             await client.set_lock_sound(enabled=True)
+
+
+class TestDeviceInfo:
+    """`get_device_info` reads plain GATT text - no TTLock frame involved."""
+
+    async def _connected(self, patched_connect):
+        key = make_virtual_key()
+        client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=0)
+        fake = FakeBleakClient(key)
+        patched_connect(fake)
+        await client.connect()
+        return client, fake
+
+    async def test_reads_confirmed_fields_leaves_unconfirmed_ones_none(
+        self, patched_connect
+    ) -> None:
+        client, fake = await self._connected(patched_connect)
+        fake.char_values = {
+            DEVICE_INFO_MANUFACTURER_CHAR: b"Sciener",
+            DEVICE_INFO_MODEL_CHAR: b"SN484",
+            DEVICE_INFO_HARDWARE_REVISION_CHAR: b"1.2",
+            DEVICE_INFO_FIRMWARE_REVISION_CHAR: b"6.5.08.230228",
+        }
+        fake.missing_chars = {
+            DEVICE_INFO_SERIAL_NUMBER_CHAR,
+            DEVICE_INFO_SOFTWARE_REVISION_CHAR,
+        }
+
+        info = await client.get_device_info()
+
+        assert info.manufacturer == "Sciener"
+        assert info.model == "SN484"
+        assert info.hardware_revision == "1.2"
+        assert info.firmware_revision == "6.5.08.230228"
+        assert info.serial_number is None
+        assert info.software_revision is None
+
+    async def test_no_device_info_service_leaves_everything_none(self, patched_connect) -> None:
+        client, fake = await self._connected(patched_connect)
+        fake.missing_chars = {
+            DEVICE_INFO_MANUFACTURER_CHAR,
+            DEVICE_INFO_MODEL_CHAR,
+            DEVICE_INFO_SERIAL_NUMBER_CHAR,
+            DEVICE_INFO_HARDWARE_REVISION_CHAR,
+            DEVICE_INFO_FIRMWARE_REVISION_CHAR,
+            DEVICE_INFO_SOFTWARE_REVISION_CHAR,
+        }
+
+        info = await client.get_device_info()
+
+        assert info == DeviceInfo()
+
+    async def test_null_padded_value_is_stripped(self, patched_connect) -> None:
+        client, fake = await self._connected(patched_connect)
+        fake.char_values = {DEVICE_INFO_MODEL_CHAR: b"SN484\x00\x00\x00"}
+        fake.missing_chars = {
+            DEVICE_INFO_MANUFACTURER_CHAR,
+            DEVICE_INFO_SERIAL_NUMBER_CHAR,
+            DEVICE_INFO_HARDWARE_REVISION_CHAR,
+            DEVICE_INFO_FIRMWARE_REVISION_CHAR,
+            DEVICE_INFO_SOFTWARE_REVISION_CHAR,
+        }
+
+        info = await client.get_device_info()
+
+        assert info.model == "SN484"
+
+    async def test_all_null_value_reads_as_none_not_empty_string(self, patched_connect) -> None:
+        client, fake = await self._connected(patched_connect)
+        fake.char_values = {DEVICE_INFO_MODEL_CHAR: b"\x00\x00\x00"}
+        fake.missing_chars = {
+            DEVICE_INFO_MANUFACTURER_CHAR,
+            DEVICE_INFO_SERIAL_NUMBER_CHAR,
+            DEVICE_INFO_HARDWARE_REVISION_CHAR,
+            DEVICE_INFO_FIRMWARE_REVISION_CHAR,
+            DEVICE_INFO_SOFTWARE_REVISION_CHAR,
+        }
+
+        info = await client.get_device_info()
+
+        assert info.model is None
 
 
 class TestExchangeTimeout:

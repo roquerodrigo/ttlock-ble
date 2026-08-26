@@ -185,6 +185,24 @@ class BleTransport:
                 response=False,
             )
 
+    async def read_optional_char(self, uuid: str) -> str | None:
+        """Read a GATT characteristic as UTF-8 text; `None` if absent or unreadable.
+
+        Generic BLE primitive, unrelated to the lock's own command
+        protocol - for standard Bluetooth SIG characteristics (e.g. the
+        Device Information Service) that any connected central can read
+        with no handshake. Firmware varies in which standard
+        characteristics it exposes, so a missing one is not an error.
+        """
+        assert self._client is not None
+        try:
+            data = await self._client.read_gatt_char(uuid)
+            text = data.decode("utf-8").strip("\x00")
+        except Exception:
+            log.debug("GATT read of %s unavailable", uuid, exc_info=True)
+            return None
+        return text or None
+
     async def _discover_chars(self) -> None:
         """Pick the GATT service+chars used by the firmware on this lock."""
         assert self._client is not None

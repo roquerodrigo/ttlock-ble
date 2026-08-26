@@ -137,6 +137,7 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock state <lock>` | Query current state and battery |
 | `ttlock battery <lock>` | Show battery percentage |
 | `ttlock sound <lock> <on\|off>` | Turn the keypad/lock beep on or off (admin eKey required) |
+| `ttlock device-info <lock>` | Show the standard BLE Device Information Service fields |
 
 Typical first run: `ttlock sync` → (if prompted) check email → `ttlock verify <code>` →
 `ttlock sync` again → `ttlock unlock <lock>`.
@@ -157,6 +158,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `get_operation_log()` | Paginated on-device operation log (`list[LogEntry]`) |
 | `set_lock_sound(enabled)` | Turn the keypad/lock beep on or off (admin eKey required) |
 | `get_lock_time()` / `calibrate_time()` / `sync_time()` | Read / align the lock's clock |
+| `get_device_info()` | Standard BLE Device Information Service fields (`DeviceInfo`) — no TTLock handshake needed |
 | `add_event_listener(cb)` / `remove_event_listener(cb)` | Subscribe to `LockEvent` pushes |
 | `is_connected` | Property — `True` while a connection is open |
 
@@ -173,7 +175,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 ### Models & enums
 
-- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`
+- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`
 - **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LogOperate`, `PwdOperateType`
 - **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP)
 

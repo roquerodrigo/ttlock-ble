@@ -10,11 +10,19 @@ from typing import TYPE_CHECKING, Self
 
 from . import commands as cmd
 from .ble import BleTransport, KeepAlive
-from .ble.constants import DEFAULT_KEEP_ALIVE_SECONDS
+from .ble.constants import (
+    DEFAULT_KEEP_ALIVE_SECONDS,
+    DEVICE_INFO_FIRMWARE_REVISION_CHAR,
+    DEVICE_INFO_HARDWARE_REVISION_CHAR,
+    DEVICE_INFO_MANUFACTURER_CHAR,
+    DEVICE_INFO_MODEL_CHAR,
+    DEVICE_INFO_SERIAL_NUMBER_CHAR,
+    DEVICE_INFO_SOFTWARE_REVISION_CHAR,
+)
 from .constants import KeyboardPwdType, LockState
 from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError
-from .models import LockEvent, LogEntry
+from .models import DeviceInfo, LockEvent, LogEntry
 from .protocol import Frame
 
 if TYPE_CHECKING:
@@ -404,6 +412,37 @@ class TTLockClient:
             plain = self._decrypt_response(resp, "set_lock_sound")
             self._require_success(plain, "set_lock_sound")
         log.info("lock sound set to %s", "on" if enabled else "off")
+
+    async def get_device_info(self) -> DeviceInfo:
+        """Read the standard BLE Device Information Service (0x180A), if the lock exposes it.
+
+        Plain unencrypted Bluetooth SIG characteristics - unrelated to
+        TTLock's own command protocol, the session AES key, or any
+        TTLock account. No handshake needed, unlike every other method
+        on this class. See `DeviceInfo` for which fields have actually
+        been confirmed on real hardware.
+        """
+        async with self._command_lock:
+            info = DeviceInfo(
+                manufacturer=await self._transport.read_optional_char(
+                    DEVICE_INFO_MANUFACTURER_CHAR
+                ),
+                model=await self._transport.read_optional_char(DEVICE_INFO_MODEL_CHAR),
+                serial_number=await self._transport.read_optional_char(
+                    DEVICE_INFO_SERIAL_NUMBER_CHAR
+                ),
+                hardware_revision=await self._transport.read_optional_char(
+                    DEVICE_INFO_HARDWARE_REVISION_CHAR
+                ),
+                firmware_revision=await self._transport.read_optional_char(
+                    DEVICE_INFO_FIRMWARE_REVISION_CHAR
+                ),
+                software_revision=await self._transport.read_optional_char(
+                    DEVICE_INFO_SOFTWARE_REVISION_CHAR
+                ),
+            )
+        log.info("device info: %s", info)
+        return info
 
     def _frame(self, command: int, payload: bytes) -> Frame:
         """Build and encrypt one command frame for this lock's protocol version."""

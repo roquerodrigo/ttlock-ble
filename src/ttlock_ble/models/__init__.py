@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .cloud_credentials import CloudCredentials
+from .device_info import DeviceInfo
 from .lock_advertisement import LockAdvertisement
 from .lock_event import LockEvent
 from .lock_version import LockVersion
@@ -12,6 +13,7 @@ from .virtual_key import VirtualKey
 
 __all__ = [
     "CloudCredentials",
+    "DeviceInfo",
     "LockAdvertisement",
     "LockEvent",
     "LockVersion",

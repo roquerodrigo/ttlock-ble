@@ -15,7 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import make_virtual_key
-from ttlock_ble import LockState
+from ttlock_ble import DeviceInfo, LockState
 from ttlock_ble._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from ttlock_ble.exceptions import CloudError
 
@@ -265,3 +265,34 @@ class TestBleCommands:
         result = runner.invoke(cli_module.app, ["sound", "2", "loud"])
         assert result.exit_code != 0
         client.set_lock_sound.assert_not_awaited()
+
+    def test_device_info(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_device_info = AsyncMock(
+            return_value=DeviceInfo(
+                manufacturer="Sciener",
+                model="SN484",
+                hardware_revision="1.2",
+                firmware_revision="6.5.08.230228",
+            )
+        )
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["device-info", "2", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "Sciener" in result.output
+        assert "SN484" in result.output
+        assert "1.2" in result.output
+        assert "6.5.08.230228" in result.output
+
+    def test_device_info_unconfirmed_fields_show_as_unknown(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_device_info = AsyncMock(return_value=DeviceInfo())
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["device-info", "2"])
+        assert result.exit_code == 0, result.output
+        assert "serial number:     ?" in result.output
+        assert "software revision: ?" in result.output

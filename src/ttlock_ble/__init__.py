@@ -9,6 +9,7 @@ Public API:
     LockAdvertisement — bolt state + battery decoded from a BLE advertisement
     LockEvent      — push notification surfaced by the BLE client
     LogEntry       — one row from the lock's on-device operation log
+    DeviceInfo     — standard BLE Device Information Service (0x180A) fields
     TTLockError    — raised by `TTLockClient` on BLE / protocol failure
     CloudError     — raised by `TTLockCloud` on a non-success HTTP response
 
@@ -22,11 +23,20 @@ from .client import TTLockClient
 from .cloud import TTLockCloud
 from .constants import AutoLockOperate, KeyboardPwdType, LockState, LogOperate, PwdOperateType
 from .exceptions import CloudError, TTLockError
-from .models import LockAdvertisement, LockEvent, LockVersion, LogEntry, SiteInfo, VirtualKey
+from .models import (
+    DeviceInfo,
+    LockAdvertisement,
+    LockEvent,
+    LockVersion,
+    LogEntry,
+    SiteInfo,
+    VirtualKey,
+)
 
 __all__ = [
     "AutoLockOperate",
     "CloudError",
+    "DeviceInfo",
     "KeyboardPwdType",
     "LockAdvertisement",
     "LockEvent",
