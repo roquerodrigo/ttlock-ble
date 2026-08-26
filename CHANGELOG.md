@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/roquerodrigo/ttlock-ble/compare/v0.2.0...v0.2.1) (2026-08-26)
+
+
+### Features
+
+* **client:** add admin-gated set_lock_sound command ([8b277c2](https://github.com/roquerodrigo/ttlock-ble/commit/8b277c268c38ad036b68099fa92f345fff5e8ee8))
+
+
+### Miscellaneous Chores
+
+* ignore .vscode directory ([a328666](https://github.com/roquerodrigo/ttlock-ble/commit/a328666548f7cab68275eef590baa4d5360fc123))
+
 ## [0.2.0](https://github.com/roquerodrigo/ttlock-ble/compare/v0.1.11...v0.2.0) (2026-08-25)
 
 
