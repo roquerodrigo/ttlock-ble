@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.2](https://github.com/roquerodrigo/ttlock-ble/compare/v0.2.1...v0.2.2) (2026-08-26)
+
+
+### Features
+
+* **client:** read device info from the standard BLE Device Information Service ([69d719a](https://github.com/roquerodrigo/ttlock-ble/commit/69d719ae2f04d8c3600ba75f31e0038447adc513))
+
+
+### Documentation
+
+* **models:** record the second lock the device info fields were confirmed on ([21e4fa4](https://github.com/roquerodrigo/ttlock-ble/commit/21e4fa492289ec78b01be09dcf1c9027522ccac2))
+
 ## [0.2.1](https://github.com/roquerodrigo/ttlock-ble/compare/v0.2.0...v0.2.1) (2026-08-26)
 
 
