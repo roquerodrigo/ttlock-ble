@@ -14,13 +14,13 @@ class DeviceInfo:
     BLE central can read these once connected, no handshake needed.
 
     Every field is `None` when the connected lock doesn't expose that
-    characteristic. Confirmed present on the one physical lock this was
-    tested against (a Sciener SN484, hardware 1.2, firmware
-    6.5.08.230228): `manufacturer`, `model`, `hardware_revision`,
-    `firmware_revision`. `serial_number` and `software_revision` are
-    implemented against the Bluetooth SIG spec but were not exposed by
-    that lock's GATT table, so they remain unconfirmed on real hardware
-    - expected to generalize to other lock models, not verified to.
+    characteristic. `manufacturer`, `model`, `hardware_revision` and
+    `firmware_revision` are confirmed present on two physical locks: a
+    Sciener SN484 (hardware 1.2, firmware 6.5.08.230228) and a Sciener
+    SN534-4P-T78-BELL (hardware 1.7, firmware 6.5.20.24121101). Neither
+    exposed `serial_number` or `software_revision` - both are
+    implemented against the Bluetooth SIG spec but remain unconfirmed
+    on real hardware.
 
     System ID (0x2A23) and PnP ID (0x2A50) are deliberately out of
     scope: unlike the fields above they are structured binary, not
