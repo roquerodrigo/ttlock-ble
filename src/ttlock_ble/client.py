@@ -22,7 +22,7 @@ from .ble.constants import (
 from .constants import KeyboardPwdType, LockState
 from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError
-from .models import DeviceInfo, LockEvent, LogEntry
+from .models import AutoLockLimits, DeviceInfo, LockEvent, LogEntry
 from .protocol import Frame
 
 if TYPE_CHECKING:
@@ -307,6 +307,27 @@ class TTLockClient:
             await self._auto_lock_exchange(cmd.payload_auto_lock_set(seconds), "set_auto_lock_time")
         log.info("auto-lock delay set to %ds", seconds)
 
+    async def get_auto_lock_limits(self) -> AutoLockLimits:
+        """Read the min/max auto-lock delay (seconds) this lock's firmware will accept.
+
+        Admin-gated - see `get_auto_lock_time`. Uses the same SEARCH
+        request `get_auto_lock_time` sends - the current value and these
+        limits arrive in the same response, but are kept as separate
+        methods/types since they're different concerns that just happen
+        to share a wire frame; see `AutoLockLimits` for what's actually
+        confirmed versus decoded-but-unverified.
+        """
+        async with self._command_lock:
+            plain = await self._auto_lock_round_trip(
+                cmd.payload_auto_lock_search(), "get_auto_lock_limits"
+            )
+            try:
+                limits = cmd.parse_auto_lock_limits_response(plain)
+            except (RuntimeError, ValueError) as error:
+                raise TTLockError(f"Failed to get_auto_lock_limits: {error}") from error
+        log.info("auto-lock limits: min=%ds max=%ds", limits.min_allowed, limits.max_allowed)
+        return limits
+
     async def add_passcode(
         self,
         code: str,
@@ -582,9 +603,10 @@ class TTLockClient:
         the key is currently valid), this authorizes against the lock's
         admin password. `set_lock_sound`, the keyboard-password commands
         (`add_passcode`/`delete_passcode`/`clear_passcodes`) and the
-        auto-lock ones (`get_auto_lock_time`/`set_auto_lock_time`) all
-        require it - each group originally shipped with no handshake at
-        all, and real-hardware testing showed the lock rejects them
+        auto-lock ones
+        (`get_auto_lock_time`/`set_auto_lock_time`/`get_auto_lock_limits`)
+        all require it - each group originally shipped with no handshake
+        at all, and real-hardware testing showed the lock rejects them
         outright without CHECK_ADMIN first (same failure signature
         `set_lock_sound` had before this was discovered). Auto-lock hid
         it longer because its parser collapsed a genuine FAILED rejection
@@ -623,11 +645,21 @@ class TTLockClient:
         plain = self._decrypt_response(resp, "check_random")
         self._require_success(plain, "check_random")
 
-    async def _auto_lock_exchange(self, payload: bytes, label: str) -> tuple[int, int | None]:
+    async def _auto_lock_round_trip(self, payload: bytes, label: str) -> bytes:
+        """Run the admin handshake, then one CMD_AUTO_LOCK_MANAGE exchange, decrypted.
+
+        Shared by `_auto_lock_exchange` and `get_auto_lock_limits` - both
+        send the same SEARCH/MODIFY frames and only differ in which
+        fields of the response they parse out afterward.
+        """
         await self._admin_handshake()
         resp = await self._transport.exchange(self._frame(cmd.CMD_AUTO_LOCK_MANAGE, payload))
         plain = self._decrypt_response(resp, label)
         log.debug("auto_lock response plaintext: %s", plain.hex())
+        return plain
+
+    async def _auto_lock_exchange(self, payload: bytes, label: str) -> tuple[int, int | None]:
+        plain = await self._auto_lock_round_trip(payload, label)
         try:
             return cmd.parse_auto_lock_response(plain)
         except (RuntimeError, ValueError) as error:

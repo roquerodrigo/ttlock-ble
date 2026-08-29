@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..constants import AutoLockOperate
+from ..models import AutoLockLimits
 from .envelope import RESPONSE_SUCCESS, parse_response_status
 
 
@@ -19,6 +20,21 @@ def payload_auto_lock_set(seconds: int) -> bytes:
     if not 0 <= seconds <= 0xFFFF:
         raise ValueError(f"auto-lock seconds out of range [0, 65535]: {seconds}")
     return bytes([AutoLockOperate.MODIFY, (seconds >> 8) & 0xFF, seconds & 0xFF])
+
+
+def _successful_data(plaintext: bytes) -> bytes:
+    """Return the payload of a COMM_AUTO_LOCK_MANAGE response, or raise.
+
+    Raises `RuntimeError` if the lock rejected the request and
+    `ValueError` if the payload is too short to carry a battery byte and
+    an op-type echo.
+    """
+    _cmd_echo, status, data = parse_response_status(plaintext)
+    if status != RESPONSE_SUCCESS:
+        raise RuntimeError(f"autoLockManage FAILED: status={status:#x} err={data.hex()}")
+    if len(data) < 2:
+        raise ValueError(f"autoLockManage payload too short: {plaintext.hex()}")
+    return data
 
 
 def parse_auto_lock_response(plaintext: bytes) -> tuple[int, int | None]:
@@ -40,14 +56,10 @@ def parse_auto_lock_response(plaintext: bytes) -> tuple[int, int | None]:
         [0]    battery percentage
         [1]    op type echo (1=SEARCH, 2=MODIFY)
         [2:4]  current value (only on SEARCH)
-        [4:6]  min allowed (optional)
-        [6:8]  max allowed (optional)
+        [4:6]  min allowed (SEARCH only - see `parse_auto_lock_limits_response`)
+        [6:8]  max allowed (SEARCH only - see `parse_auto_lock_limits_response`)
     """
-    _cmd_echo, status, data = parse_response_status(plaintext)
-    if status != RESPONSE_SUCCESS:
-        raise RuntimeError(f"autoLockManage FAILED: status={status:#x} err={data.hex()}")
-    if len(data) < 2:
-        raise ValueError(f"autoLockManage payload too short: {plaintext.hex()}")
+    data = _successful_data(plaintext)
     battery = data[0]
     op_type = data[1]
     if op_type != 1:
@@ -55,3 +67,29 @@ def parse_auto_lock_response(plaintext: bytes) -> tuple[int, int | None]:
     if len(data) < 4:
         raise ValueError(f"autoLockManage SEARCH payload missing seconds: {plaintext.hex()}")
     return int.from_bytes(data[2:4], "big"), battery
+
+
+def parse_auto_lock_limits_response(plaintext: bytes) -> AutoLockLimits:
+    """Decode the min/max allowed auto-lock seconds from a SEARCH response.
+
+    Only present on a SEARCH-type ack, same wire frame
+    `parse_auto_lock_response` reads (see its `[4:6]`/`[6:8]` layout
+    note) - the two concerns just happen to arrive in the same
+    response. Raises `RuntimeError` on a FAILED status, and `ValueError`
+    if the response isn't a SEARCH echo or is missing the min/max bytes,
+    mirroring `parse_auto_lock_response`'s truncated-SEARCH handling.
+
+    Confirmed via direct rejection testing on one physical lock (not
+    just decoding the bytes) - see `AutoLockLimits` for the values and
+    what "confirmed" means here.
+    """
+    data = _successful_data(plaintext)
+    op_type = data[1]
+    if op_type != 1:
+        raise ValueError(f"autoLockManage limits need a SEARCH response, got op_type={op_type}")
+    if len(data) < 8:
+        raise ValueError(f"autoLockManage SEARCH payload missing min/max: {plaintext.hex()}")
+    return AutoLockLimits(
+        min_allowed=int.from_bytes(data[4:6], "big"),
+        max_allowed=int.from_bytes(data[6:8], "big"),
+    )

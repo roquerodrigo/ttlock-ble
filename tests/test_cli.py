@@ -15,7 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import make_virtual_key
-from ttlock_ble import DeviceInfo, LockState
+from ttlock_ble import AutoLockLimits, DeviceInfo, LockState
 from ttlock_ble._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from ttlock_ble.exceptions import CloudError
 
@@ -370,3 +370,16 @@ class TestBleCommands:
         assert result.exit_code == 0, result.output
         assert "set to 45s" in result.output
         client.set_auto_lock_time.assert_awaited_once_with(45)
+
+    def test_get_auto_lock_limits(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_auto_lock_limits = AsyncMock(
+            return_value=AutoLockLimits(min_allowed=1, max_allowed=900)
+        )
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-auto-lock-limits", "2", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "min: 1s" in result.output
+        assert "max: 900s" in result.output

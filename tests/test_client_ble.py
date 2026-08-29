@@ -506,6 +506,50 @@ class TestCommands:
         with pytest.raises(TTLockError, match="Failed to set_auto_lock_time"):
             await client.set_auto_lock_time(15)
 
+    async def test_get_auto_lock_limits(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        plain = (
+            bytes([cmd.CMD_AUTO_LOCK_MANAGE, 0x01, 90, 1])
+            + (45).to_bytes(2, "big")
+            + (1).to_bytes(2, "big")
+            + (900).to_bytes(2, "big")
+            + bytes([0x01])
+        )
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_AUTO_LOCK_MANAGE, plain),
+        ]
+        limits = await client.get_auto_lock_limits()
+        assert limits.min_allowed == 1
+        assert limits.max_allowed == 900
+
+    async def test_get_auto_lock_limits_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_AUTO_LOCK_MANAGE,
+                _status_plain(cmd.CMD_AUTO_LOCK_MANAGE, cmd.RESPONSE_FAILED),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to get_auto_lock_limits"):
+            await client.get_auto_lock_limits()
+
+    async def test_get_auto_lock_limits_admin_check_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.get_auto_lock_limits()
+
     async def test_set_lock_sound_on(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [

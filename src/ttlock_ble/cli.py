@@ -17,7 +17,7 @@ from ._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from .client import TTLockClient
 from .cloud import TTLockCloud
 from .exceptions import CloudError
-from .models import DeviceInfo, VirtualKey
+from .models import AutoLockLimits, DeviceInfo, VirtualKey
 
 if TYPE_CHECKING:
     from .constants import LockState
@@ -287,6 +287,20 @@ def set_auto_lock(
     typer.echo(f"✓ auto-lock set to {seconds}s")
 
 
+@app.command("get-auto-lock-limits")
+def get_auto_lock_limits(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Read the min/max auto-lock delay accepted by this lock (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    limits = asyncio.run(_run_get_auto_lock_limits(key))
+    typer.echo(f"min: {limits.min_allowed}s")
+    typer.echo(f"max: {limits.max_allowed}s")
+
+
 async def _run_unlock(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.unlock()
@@ -335,6 +349,11 @@ async def _run_get_auto_lock(key: VirtualKey) -> int:
 async def _run_set_auto_lock(key: VirtualKey, seconds: int) -> None:
     async with TTLockClient(key) as c:
         await c.set_auto_lock_time(seconds)
+
+
+async def _run_get_auto_lock_limits(key: VirtualKey) -> AutoLockLimits:
+    async with TTLockClient(key) as c:
+        return await c.get_auto_lock_limits()
 
 
 if (

@@ -143,6 +143,38 @@ class TestParsers:
         with pytest.raises(ValueError, match="missing seconds"):
             cmd.parse_auto_lock_response(bytes([0x36, cmd.RESPONSE_SUCCESS, 90, 1]))
 
+    def test_auto_lock_limits_returns_min_max(self) -> None:
+        plain = (
+            bytes([0x36, cmd.RESPONSE_SUCCESS, 90, 1])
+            + (45).to_bytes(2, "big")
+            + (1).to_bytes(2, "big")
+            + (900).to_bytes(2, "big")
+            + bytes([0x01])
+        )
+        limits = cmd.parse_auto_lock_limits_response(plain)
+        assert limits.min_allowed == 1
+        assert limits.max_allowed == 900
+
+    def test_auto_lock_limits_short_payload_raises(self) -> None:
+        with pytest.raises(ValueError, match="too short"):
+            cmd.parse_auto_lock_limits_response(bytes([0x36, cmd.RESPONSE_SUCCESS, 0x01]))
+
+    def test_auto_lock_limits_failure_raises(self) -> None:
+        with pytest.raises(RuntimeError, match="FAILED"):
+            cmd.parse_auto_lock_limits_response(bytes([0x36, cmd.RESPONSE_FAILED]))
+
+    def test_auto_lock_limits_modify_ack_raises(self) -> None:
+        # A MODIFY ack has no min/max fields at all - limits only exist on a
+        # SEARCH response, unlike parse_auto_lock_response's -1 tolerance.
+        plain = bytes([0x36, cmd.RESPONSE_SUCCESS, 90, 2])
+        with pytest.raises(ValueError, match="SEARCH response"):
+            cmd.parse_auto_lock_limits_response(plain)
+
+    def test_auto_lock_limits_truncated_raises(self) -> None:
+        plain = bytes([0x36, cmd.RESPONSE_SUCCESS, 90, 1]) + (45).to_bytes(2, "big")
+        with pytest.raises(ValueError, match="missing min/max"):
+            cmd.parse_auto_lock_limits_response(plain)
+
     def test_operate_log_failure_empty(self) -> None:
         assert cmd.parse_operate_log_response(bytes([0x25, cmd.RESPONSE_FAILED])) == ([], 0)
 

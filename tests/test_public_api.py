@@ -14,6 +14,7 @@ from ttlock_ble import TTLockClient
 
 EXPECTED_EXPORTS = frozenset(
     {
+        "AutoLockLimits",
         "AutoLockOperate",
         "CloudError",
         "DeviceInfo",
@@ -43,6 +44,7 @@ EXPECTED_CLIENT_MEMBERS = frozenset(
         "delete_passcode",
         "disconnect",
         "from_ble_device",
+        "get_auto_lock_limits",
         "get_auto_lock_time",
         "get_device_info",
         "get_lock_time",

@@ -10,6 +10,7 @@ Public API:
     LockEvent      — push notification surfaced by the BLE client
     LogEntry       — one row from the lock's on-device operation log
     DeviceInfo     — standard BLE Device Information Service (0x180A) fields
+    AutoLockLimits — the lock's own min/max allowed auto-lock delay
     TTLockError    — raised by `TTLockClient` on BLE / protocol failure
     CloudError     — raised by `TTLockCloud` on a non-success HTTP response
 
@@ -24,6 +25,7 @@ from .cloud import TTLockCloud
 from .constants import AutoLockOperate, KeyboardPwdType, LockState, LogOperate, PwdOperateType
 from .exceptions import CloudError, TTLockError
 from .models import (
+    AutoLockLimits,
     DeviceInfo,
     LockAdvertisement,
     LockEvent,
@@ -34,6 +36,7 @@ from .models import (
 )
 
 __all__ = [
+    "AutoLockLimits",
     "AutoLockOperate",
     "CloudError",
     "DeviceInfo",

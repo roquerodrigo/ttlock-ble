@@ -12,7 +12,12 @@ for the bolt, `clock`, `auto_lock`, `passcode`, `operate_log` and
 
 from __future__ import annotations
 
-from .auto_lock import parse_auto_lock_response, payload_auto_lock_search, payload_auto_lock_set
+from .auto_lock import (
+    parse_auto_lock_limits_response,
+    parse_auto_lock_response,
+    payload_auto_lock_search,
+    payload_auto_lock_set,
+)
 from .clock import parse_get_lock_time_response, payload_get_lock_time, payload_time_calibrate
 from .control import (
     LOCKED,
@@ -86,6 +91,7 @@ __all__ = [
     "RESPONSE_SUCCESS",
     "UNLOCKED",
     "VENDOR",
+    "parse_auto_lock_limits_response",
     "parse_auto_lock_response",
     "parse_check_admin_response",
     "parse_check_user_time_response",
