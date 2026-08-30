@@ -305,6 +305,19 @@ class TTLockClient:
         `pwd_type=PERMANENT` ignores `end_date`. For time-windowed codes
         (KeyboardPwdType.PERIOD), pass `start_date` / `end_date` as
         `YYMMDDHHmm` strings.
+
+        Admin-gated: `self.key` needs the lock's admin password, or
+        CHECK_ADMIN fails the same way a missing handshake would (see
+        `_admin_handshake`).
+
+        If `code` shares a digit prefix with another active passcode
+        (e.g. "1234" and "12345"), the keypad may match the shorter
+        stored code first regardless of which one was actually typed -
+        confirmed reproducible even via the official app, so this is
+        TTLock firmware behavior, not something this library can
+        control or detect. Deleting a longer code does not guarantee
+        revocation if a shorter prefix of it remains active as its own
+        passcode - see `delete_passcode`.
         """
         async with self._command_lock:
             await self._keyboard_password_exchange(
@@ -318,7 +331,15 @@ class TTLockClient:
         *,
         pwd_type: KeyboardPwdType = KeyboardPwdType.PERMANENT,
     ) -> None:
-        """Remove a single keypad passcode previously installed via `add_passcode`."""
+        """Remove a single keypad passcode previously installed via `add_passcode`.
+
+        Admin-gated - see `add_passcode`.
+
+        A SUCCESS response here does not guarantee `code` no longer
+        unlocks the door: if a shorter digit-prefix of it is still
+        active as its own passcode, the keypad may keep accepting it -
+        see `add_passcode`'s prefix-matching caveat.
+        """
         async with self._command_lock:
             await self._keyboard_password_exchange(
                 cmd.payload_passcode_delete(int(pwd_type), code),
@@ -326,7 +347,10 @@ class TTLockClient:
             )
 
     async def clear_passcodes(self) -> None:
-        """Wipe ALL keypad passcodes from the lock. There's no undo."""
+        """Wipe ALL keypad passcodes from the lock. There's no undo.
+
+        Admin-gated - see `add_passcode`.
+        """
         async with self._command_lock:
             await self._keyboard_password_exchange(
                 cmd.payload_passcode_clear(),
@@ -392,8 +416,8 @@ class TTLockClient:
     async def set_lock_sound(self, *, enabled: bool) -> None:
         """Turn the keypad/lock beep on or off.
 
-        Admin-gated: `self.key` needs `is_admin()` true, or CHECK_ADMIN
-        fails the same way a missing handshake would (see
+        Admin-gated: `self.key` needs the lock's admin password, or
+        CHECK_ADMIN fails the same way a missing handshake would (see
         `_admin_handshake`).
 
         There is no corresponding read/status command - neither
@@ -539,12 +563,27 @@ class TTLockClient:
     async def _admin_handshake(self) -> None:
         """Run CHECK_ADMIN then CHECK_RANDOM - the extra handshake admin-gated commands need.
 
-        Unlike `_check_user_time` (used by unlock/lock/auto-lock/passcode),
-        nothing else in this client needs it yet - `set_lock_sound` is the
-        first admin-gated command - but it's written as reusable
-        infrastructure for whatever else turns out to need admin
-        authorization, not something specific to sound.
+        Unlike `_check_user_time` (used by unlock/lock, proving only that
+        the key is currently valid), this authorizes against the lock's
+        admin password. `set_lock_sound` and the keyboard-password
+        commands (`add_passcode`/`delete_passcode`/`clear_passcodes`) both
+        require it - passcode management originally shipped with no
+        handshake at all, and real-hardware testing showed the lock
+        rejects it outright without CHECK_ADMIN first (same failure
+        signature `set_lock_sound` had before this was discovered).
+
+        Checks the admin password before touching the BLE link: it is
+        `""` on a key that never carried one, and `payload_check_admin`
+        would otherwise raise a raw `ValueError` from `int("")` - this
+        keeps the public contract to `TTLockError` only. The check is on
+        the password rather than on `is_admin()` because `userType` is a
+        cloud field a locally built key does not carry, while what the
+        firmware actually verifies is the password itself.
         """
+        if not self.key.adminPs.isdigit():
+            raise TTLockError(
+                f"Failed to authorize as admin: key {self.key.keyId} carries no admin password"
+            )
         resp = await self._transport.exchange(
             self._frame(
                 cmd.CMD_CHECK_ADMIN,
@@ -575,6 +614,7 @@ class TTLockClient:
             raise TTLockError(f"Failed to parse auto_lock response: {error}") from error
 
     async def _keyboard_password_exchange(self, payload: bytes, label: str) -> None:
+        await self._admin_handshake()
         resp = await self._transport.exchange(
             self._frame(cmd.CMD_MANAGE_KEYBOARD_PASSWORD, payload)
         )

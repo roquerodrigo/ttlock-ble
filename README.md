@@ -154,7 +154,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `unlock()` / `lock()` | Drive the bolt |
 | `query_state()` | `(LockState \| None, battery_percent \| None)` |
 | `get_auto_lock_time()` / `set_auto_lock_time(seconds)` | Read / set the auto-lock delay |
-| `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Manage keypad passcodes |
+| `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Manage keypad passcodes (admin eKey required) |
 | `get_operation_log()` | Paginated on-device operation log (`list[LogEntry]`) |
 | `set_lock_sound(enabled)` | Turn the keypad/lock beep on or off (admin eKey required) |
 | `get_lock_time()` / `calibrate_time()` / `sync_time()` | Read / align the lock's clock |

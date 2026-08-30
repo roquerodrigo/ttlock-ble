@@ -348,45 +348,67 @@ class TestCommands:
     async def test_add_passcode(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
             _resp_frame(
                 key,
                 cmd.CMD_MANAGE_KEYBOARD_PASSWORD,
                 _status_plain(cmd.CMD_MANAGE_KEYBOARD_PASSWORD),
-            )
+            ),
         ]
         await client.add_passcode("1234")
 
     async def test_add_passcode_rejected(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
             _resp_frame(
                 key,
                 cmd.CMD_MANAGE_KEYBOARD_PASSWORD,
                 _status_plain(cmd.CMD_MANAGE_KEYBOARD_PASSWORD, cmd.RESPONSE_FAILED),
-            )
+            ),
         ]
         with pytest.raises(TTLockError, match="add_passcode"):
+            await client.add_passcode("1234")
+
+    async def test_add_passcode_admin_check_rejected_raises(self, patched_connect) -> None:
+        # The bug this guards against: CMD_MANAGE_KEYBOARD_PASSWORD used to be sent with
+        # no handshake at all, and real hardware requiring admin auth rejected it outright.
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
             await client.add_passcode("1234")
 
     async def test_delete_passcode(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
             _resp_frame(
                 key,
                 cmd.CMD_MANAGE_KEYBOARD_PASSWORD,
                 _status_plain(cmd.CMD_MANAGE_KEYBOARD_PASSWORD),
-            )
+            ),
         ]
         await client.delete_passcode("1234")
 
     async def test_clear_passcodes(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
             _resp_frame(
                 key,
                 cmd.CMD_MANAGE_KEYBOARD_PASSWORD,
                 _status_plain(cmd.CMD_MANAGE_KEYBOARD_PASSWORD),
-            )
+            ),
         ]
         await client.clear_passcodes()
 
@@ -439,6 +461,39 @@ class TestCommands:
         ]
         with pytest.raises(TTLockError, match="Failed to authorize as admin"):
             await client.set_lock_sound(enabled=True)
+
+    async def test_admin_handshake_rejects_a_key_with_no_admin_password(
+        self, patched_connect
+    ) -> None:
+        # Guards a raw ValueError leak: adminPs is "" on a key that never
+        # carried one, and int("") inside payload_check_admin must not
+        # escape as a bare ValueError - the public contract is TTLockError.
+        client, fake, key = await self._connected(patched_connect)
+        key.userType = ""
+        key.adminPs = ""
+
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.add_passcode("1234")
+        assert fake.written == []
+
+    async def test_admin_handshake_accepts_an_admin_password_without_a_user_type(
+        self, patched_connect
+    ) -> None:
+        # A key built locally instead of pulled from the cloud carries the
+        # admin password but no `userType`, and the firmware verifies the
+        # password, not that field.
+        client, fake, key = await self._connected(patched_connect)
+        key.userType = ""
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_MANAGE_KEYBOARD_PASSWORD,
+                _status_plain(cmd.CMD_MANAGE_KEYBOARD_PASSWORD),
+            ),
+        ]
+        await client.add_passcode("1234")
 
     async def test_set_lock_sound_check_random_rejected_raises(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
