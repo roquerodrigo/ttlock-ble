@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.3.0](https://github.com/roquerodrigo/ttlock-ble/compare/v0.2.2...v0.3.0) (2026-08-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **client:** `calibrate_time()` takes a required `local_time` argument where `when` was optional and defaulted to UTC; `sync_time()`'s `when=` keyword is likewise now a required `local_time=`; `payload_time_calibrate()` requires its argument. Callers relying on the default must pass the lock's local time explicitly - passing UTC to a lock that keeps local time moves its clock by the offset.
+* **client:** `get_auto_lock_time()` and `set_auto_lock_time()` now raise `TTLockError` when the lock rejects the request, where before both returned quietly and `get_auto_lock_time()` answered `-1`. Callers that branched on `-1` to detect a failure must catch `TTLockError` instead. `parse_auto_lock_response()` raises `RuntimeError` on a FAILED status and `ValueError` on a truncated payload for the same reason.
+
+### Features
+
+* **cli:** add auto-lock delay commands ([4544811](https://github.com/roquerodrigo/ttlock-ble/commit/45448112d6a49d9c0c5148596e642d28bf682b37))
+* **cli:** add keypad passcode commands ([e784d45](https://github.com/roquerodrigo/ttlock-ble/commit/e784d45984d1bc6d7e79fedf8e4c36108c81a087))
+* **client:** add get_auto_lock_limits() ([1b08a5b](https://github.com/roquerodrigo/ttlock-ble/commit/1b08a5b32ce906c77a48bc4b6457d4c16e77c7ed))
+
+
+### Bug Fixes
+
+* **client:** require admin handshake for auto-lock commands ([d13a746](https://github.com/roquerodrigo/ttlock-ble/commit/d13a7469c7df88f0d341cddf87e3bc5536825a38))
+* **client:** require admin handshake for keyboard-password commands ([d1f1ccb](https://github.com/roquerodrigo/ttlock-ble/commit/d1f1ccb1853940f48906734b0443c8dd427f56d0))
+* **client:** require admin handshake to write the lock's clock ([58c1fc1](https://github.com/roquerodrigo/ttlock-ble/commit/58c1fc140e5fa03b63b50b3a0a8a700da2934826))
+* **packaging:** normalize path separators in sdist tests on Windows ([9d6e149](https://github.com/roquerodrigo/ttlock-ble/commit/9d6e14953a20319e8e02e690010f23b768c90469))
+
 ## [0.2.2](https://github.com/roquerodrigo/ttlock-ble/compare/v0.2.1...v0.2.2) (2026-08-26)
 
 
