@@ -24,9 +24,16 @@ def payload_auto_lock_set(seconds: int) -> bytes:
 def parse_auto_lock_response(plaintext: bytes) -> tuple[int, int | None]:
     """Decode a COMM_AUTO_LOCK_MANAGE response.
 
-    Returns `(seconds, battery_pct)`. `seconds=-1` means UNKNOWN (firmware
-    didn't include a value, e.g. on MODIFY ack). `battery_pct=None` means
-    the response didn't carry a battery byte.
+    Returns `(seconds, battery_pct)`. `seconds=-1` means UNKNOWN, reached
+    only for a non-SEARCH op-type echo (e.g. a MODIFY ack, which by
+    design carries no seconds field - not a failure). A SEARCH echo
+    (op_type=1) that's missing its own seconds bytes is a different,
+    genuinely anomalous case and raises `ValueError` rather than
+    collapsing into the same -1 sentinel - a truncated response is not
+    "no value by design". Raises `RuntimeError` if status != SUCCESS,
+    matching `parse_check_user_time_response` - a FAILED status must not
+    collapse into UNKNOWN either, or a genuine rejection goes silently
+    unnoticed by the caller.
 
     Wire layout (after the universal envelope):
 
@@ -37,9 +44,14 @@ def parse_auto_lock_response(plaintext: bytes) -> tuple[int, int | None]:
         [6:8]  max allowed (optional)
     """
     _cmd_echo, status, data = parse_response_status(plaintext)
-    if status != RESPONSE_SUCCESS or len(data) < 2:
-        return -1, None
+    if status != RESPONSE_SUCCESS:
+        raise RuntimeError(f"autoLockManage FAILED: status={status:#x} err={data.hex()}")
+    if len(data) < 2:
+        raise ValueError(f"autoLockManage payload too short: {plaintext.hex()}")
     battery = data[0]
     op_type = data[1]
-    seconds = int.from_bytes(data[2:4], "big") if op_type == 1 and len(data) >= 4 else -1
-    return seconds, battery
+    if op_type != 1:
+        return -1, battery
+    if len(data) < 4:
+        raise ValueError(f"autoLockManage SEARCH payload missing seconds: {plaintext.hex()}")
+    return int.from_bytes(data[2:4], "big"), battery

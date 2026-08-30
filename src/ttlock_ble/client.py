@@ -280,16 +280,31 @@ class TTLockClient:
                 raise TTLockError(f"Failed to parse query_state response: {error}") from error
 
     async def get_auto_lock_time(self) -> int:
-        """Read the auto-lock delay in seconds (0 = disabled, -1 = unknown)."""
+        """Read the auto-lock delay in seconds (0 = disabled).
+
+        Admin-gated: `self.key` needs the lock's admin password, or
+        CHECK_ADMIN fails the same way a missing handshake would (see
+        `_admin_handshake`).
+
+        `-1` would only appear if the lock echoed a non-SEARCH op-type
+        for this SEARCH request - an anomaly, not a normal outcome; see
+        `parse_auto_lock_response`. A genuinely truncated SEARCH reply
+        raises `TTLockError` instead of returning `-1`.
+        """
         async with self._command_lock:
-            seconds, _battery = await self._auto_lock_exchange(cmd.payload_auto_lock_search())
+            seconds, _battery = await self._auto_lock_exchange(
+                cmd.payload_auto_lock_search(), "get_auto_lock_time"
+            )
         log.info("auto-lock delay: %ds", seconds)
         return seconds
 
     async def set_auto_lock_time(self, seconds: int) -> None:
-        """Set the auto-lock delay in seconds. `0` disables auto-lock entirely."""
+        """Set the auto-lock delay in seconds. `0` disables auto-lock entirely.
+
+        Admin-gated - see `get_auto_lock_time`.
+        """
         async with self._command_lock:
-            await self._auto_lock_exchange(cmd.payload_auto_lock_set(seconds))
+            await self._auto_lock_exchange(cmd.payload_auto_lock_set(seconds), "set_auto_lock_time")
         log.info("auto-lock delay set to %ds", seconds)
 
     async def add_passcode(
@@ -565,12 +580,16 @@ class TTLockClient:
 
         Unlike `_check_user_time` (used by unlock/lock, proving only that
         the key is currently valid), this authorizes against the lock's
-        admin password. `set_lock_sound` and the keyboard-password
-        commands (`add_passcode`/`delete_passcode`/`clear_passcodes`) both
-        require it - passcode management originally shipped with no
-        handshake at all, and real-hardware testing showed the lock
-        rejects it outright without CHECK_ADMIN first (same failure
-        signature `set_lock_sound` had before this was discovered).
+        admin password. `set_lock_sound`, the keyboard-password commands
+        (`add_passcode`/`delete_passcode`/`clear_passcodes`) and the
+        auto-lock ones (`get_auto_lock_time`/`set_auto_lock_time`) all
+        require it - each group originally shipped with no handshake at
+        all, and real-hardware testing showed the lock rejects them
+        outright without CHECK_ADMIN first (same failure signature
+        `set_lock_sound` had before this was discovered). Auto-lock hid
+        it longer because its parser collapsed a genuine FAILED rejection
+        into the same UNKNOWN sentinel a legitimate no-value response
+        returns.
 
         Checks the admin password before touching the BLE link: it is
         `""` on a key that never carried one, and `payload_check_admin`
@@ -604,14 +623,15 @@ class TTLockClient:
         plain = self._decrypt_response(resp, "check_random")
         self._require_success(plain, "check_random")
 
-    async def _auto_lock_exchange(self, payload: bytes) -> tuple[int, int | None]:
+    async def _auto_lock_exchange(self, payload: bytes, label: str) -> tuple[int, int | None]:
+        await self._admin_handshake()
         resp = await self._transport.exchange(self._frame(cmd.CMD_AUTO_LOCK_MANAGE, payload))
-        plain = self._decrypt_response(resp, "auto_lock")
+        plain = self._decrypt_response(resp, label)
         log.debug("auto_lock response plaintext: %s", plain.hex())
         try:
             return cmd.parse_auto_lock_response(plain)
-        except ValueError as error:
-            raise TTLockError(f"Failed to parse auto_lock response: {error}") from error
+        except (RuntimeError, ValueError) as error:
+            raise TTLockError(f"Failed to {label}: {error}") from error
 
     async def _keyboard_password_exchange(self, payload: bytes, label: str) -> None:
         await self._admin_handshake()

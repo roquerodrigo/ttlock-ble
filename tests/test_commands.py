@@ -125,12 +125,23 @@ class TestParsers:
     def test_state_battery_value(self) -> None:
         assert cmd.parse_state_battery(bytes([0x14, cmd.RESPONSE_SUCCESS, 0x55])) == 0x55
 
-    def test_auto_lock_failure_returns_unknown(self) -> None:
-        assert cmd.parse_auto_lock_response(bytes([0x36, cmd.RESPONSE_FAILED])) == (-1, None)
+    def test_auto_lock_failure_raises(self) -> None:
+        with pytest.raises(RuntimeError, match="FAILED"):
+            cmd.parse_auto_lock_response(bytes([0x36, cmd.RESPONSE_FAILED]))
+
+    def test_auto_lock_short_payload_raises(self) -> None:
+        with pytest.raises(ValueError, match="too short"):
+            cmd.parse_auto_lock_response(bytes([0x36, cmd.RESPONSE_SUCCESS, 0x01]))
 
     def test_auto_lock_modify_ack_has_no_seconds(self) -> None:
         plain = bytes([0x36, cmd.RESPONSE_SUCCESS, 90, 2])
         assert cmd.parse_auto_lock_response(plain) == (-1, 90)
+
+    def test_auto_lock_search_truncated_raises(self) -> None:
+        # op_type=1 (SEARCH) but the seconds bytes never arrived - this must
+        # NOT collapse into the -1 sentinel a genuine MODIFY ack returns.
+        with pytest.raises(ValueError, match="missing seconds"):
+            cmd.parse_auto_lock_response(bytes([0x36, cmd.RESPONSE_SUCCESS, 90, 1]))
 
     def test_operate_log_failure_empty(self) -> None:
         assert cmd.parse_operate_log_response(bytes([0x25, cmd.RESPONSE_FAILED])) == ([], 0)

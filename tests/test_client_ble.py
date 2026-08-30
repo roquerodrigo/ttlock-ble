@@ -416,16 +416,95 @@ class TestCommands:
         client, fake, key = await self._connected(patched_connect)
         # auto-lock search response after envelope: [battery, op=1, seconds(2 BE)].
         plain = bytes([cmd.CMD_AUTO_LOCK_MANAGE, 0x01, 90, 1]) + (30).to_bytes(2, "big")
-        fake.reply_for_next = [_resp_frame(key, cmd.CMD_AUTO_LOCK_MANAGE, plain)]
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_AUTO_LOCK_MANAGE, plain),
+        ]
         seconds = await client.get_auto_lock_time()
         assert seconds == 30
+
+    async def test_get_auto_lock_time_rejected_raises(self, patched_connect) -> None:
+        # Regression guard: a FAILED status must not silently collapse into
+        # the "-1 = unknown" sentinel - this masked the missing handshake
+        # for as long as it did.
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_AUTO_LOCK_MANAGE,
+                _status_plain(cmd.CMD_AUTO_LOCK_MANAGE, cmd.RESPONSE_FAILED),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to get_auto_lock_time"):
+            await client.get_auto_lock_time()
+
+    async def test_get_auto_lock_time_admin_check_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.get_auto_lock_time()
+
+    async def test_auto_lock_rejects_a_key_with_no_admin_password(self, patched_connect) -> None:
+        # Guards a raw ValueError leak: adminPs is "" on a key that never
+        # carried one, and int("") inside payload_check_admin must not
+        # escape as a bare ValueError - the public contract is TTLockError.
+        client, fake, key = await self._connected(patched_connect)
+        key.userType = ""
+        key.adminPs = ""
+
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.get_auto_lock_time()
+        assert fake.written == []
+
+    async def test_auto_lock_accepts_an_admin_password_without_a_user_type(
+        self, patched_connect
+    ) -> None:
+        # A key built locally instead of pulled from the cloud carries the
+        # admin password but no `userType`, and the firmware verifies the
+        # password, not that field.
+        client, fake, key = await self._connected(patched_connect)
+        key.userType = ""
+        plain = bytes([cmd.CMD_AUTO_LOCK_MANAGE, 0x01, 90, 1]) + (30).to_bytes(2, "big")
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_AUTO_LOCK_MANAGE, plain),
+        ]
+        assert await client.get_auto_lock_time() == 30
 
     async def test_set_auto_lock_time(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         # MODIFY ack: [battery, op=2] — no seconds echoed back.
         plain = bytes([cmd.CMD_AUTO_LOCK_MANAGE, 0x01, 90, 2])
-        fake.reply_for_next = [_resp_frame(key, cmd.CMD_AUTO_LOCK_MANAGE, plain)]
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_AUTO_LOCK_MANAGE, plain),
+        ]
         await client.set_auto_lock_time(15)
+
+    async def test_set_auto_lock_time_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_AUTO_LOCK_MANAGE,
+                _status_plain(cmd.CMD_AUTO_LOCK_MANAGE, cmd.RESPONSE_FAILED),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to set_auto_lock_time"):
+            await client.set_auto_lock_time(15)
 
     async def test_set_lock_sound_on(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
