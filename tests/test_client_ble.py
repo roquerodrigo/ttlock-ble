@@ -8,6 +8,7 @@ Frame bytes are real (built + AES-encrypted) so the protocol round-trips.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
@@ -329,21 +330,39 @@ class TestCommands:
     async def test_calibrate_time(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [
-            _resp_frame(key, cmd.CMD_TIME_CALIBRATE, _status_plain(cmd.CMD_TIME_CALIBRATE))
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_TIME_CALIBRATE, _status_plain(cmd.CMD_TIME_CALIBRATE)),
         ]
-        await client.calibrate_time()
+        await client.calibrate_time(dt.datetime(2026, 5, 20, 12, 0, 0))  # noqa: DTZ001
 
     async def test_calibrate_time_rejected(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
             _resp_frame(
                 key,
                 cmd.CMD_TIME_CALIBRATE,
                 _status_plain(cmd.CMD_TIME_CALIBRATE, cmd.RESPONSE_FAILED),
-            )
+            ),
         ]
         with pytest.raises(TTLockError, match="calibrate"):
-            await client.calibrate_time()
+            await client.calibrate_time(dt.datetime(2026, 5, 20, 12, 0, 0))  # noqa: DTZ001
+
+    async def test_calibrate_time_admin_check_rejected_raises(self, patched_connect) -> None:
+        # The bug this guards against: CMD_TIME_CALIBRATE used to be sent with no
+        # handshake at all, and the lock answered status=0x0 err=02 every time.
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.calibrate_time(dt.datetime(2026, 5, 20, 12, 0, 0))  # noqa: DTZ001
 
     async def test_add_passcode(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)

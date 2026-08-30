@@ -207,11 +207,11 @@ class TestCommands:
         assert payload == bytes([26, 5, 11, 14, 23, 7])
         assert payload[0] == 0x1A
 
-    def test_time_calibrate_default_uses_now(self):
-        payload = cmd.payload_time_calibrate()
-        assert len(payload) == 6
-        # Year byte should be in the plausible range [25, 99] for a current run.
-        assert 25 <= payload[0] <= 99
+    def test_time_calibrate_encodes_an_aware_datetime_as_it_displays(self):
+        # The lock stores six wall-clock fields with no offset, so an aware
+        # reference must encode the time it shows, not the UTC instant.
+        moment = dt.datetime(2026, 5, 11, 14, 23, 7, tzinfo=dt.timezone(-dt.timedelta(hours=3)))
+        assert cmd.payload_time_calibrate(moment) == bytes([26, 5, 11, 14, 23, 7])
 
 
 class TestAutoLock:

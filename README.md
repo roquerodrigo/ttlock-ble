@@ -164,7 +164,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Manage keypad passcodes (admin eKey required) |
 | `get_operation_log()` | Paginated on-device operation log (`list[LogEntry]`) |
 | `set_lock_sound(enabled)` | Turn the keypad/lock beep on or off (admin eKey required) |
-| `get_lock_time()` / `calibrate_time()` / `sync_time()` | Read / align the lock's clock |
+| `get_lock_time()` / `calibrate_time(local_time)` / `sync_time(local_time=…)` | Read / align the lock's clock — the reference is the lock's **local** time, and writing it requires an admin eKey |
 | `get_device_info()` | Standard BLE Device Information Service fields (`DeviceInfo`) — no TTLock handshake needed |
 | `add_event_listener(cb)` / `remove_event_listener(cb)` | Subscribe to `LockEvent` pushes |
 | `is_connected` | Property — `True` while a connection is open |

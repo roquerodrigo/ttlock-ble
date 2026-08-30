@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
-import datetime as dt
+from typing import TYPE_CHECKING
 
 from .encoding import decimal_time_bytes, decode_date6
 from .envelope import RESPONSE_SUCCESS, parse_response_status
 
+if TYPE_CHECKING:
+    import datetime as dt
 
-def payload_time_calibrate(when: dt.datetime | None = None) -> bytes:
+
+def payload_time_calibrate(local_time: dt.datetime) -> bytes:
     """COMM_TIME_CALIBRATE — 6 bytes `[YY, MM, DD, HH, mm, ss]` decimal-encoded.
 
     Each byte is the literal decimal value (year 2026 → byte 26 = 0x1A),
     NOT BCD. The lock keeps an RTC that drifts and needs periodic
     recalibration; HA integrations typically call this on connect and
     once a day thereafter.
+
+    `local_time` is the wall clock the lock will store and report back,
+    with no offset attached — see `TTLockClient.calibrate_time` for why
+    it has to be the lock's local time rather than UTC. Only the
+    wall-clock fields are read, so an aware datetime is encoded as the
+    time it displays.
     """
-    moment = when or dt.datetime.now(dt.UTC)
-    return decimal_time_bytes(moment.strftime("%y%m%d%H%M%S"))
+    return decimal_time_bytes(local_time.strftime("%y%m%d%H%M%S"))
 
 
 def payload_get_lock_time() -> bytes:

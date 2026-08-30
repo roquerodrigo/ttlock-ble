@@ -322,6 +322,28 @@ def _calibrate_ack_frame(key: VirtualKey) -> Frame:
     )
 
 
+def _admin_handshake_frames(key: VirtualKey) -> list[Frame]:
+    """The CHECK_ADMIN + CHECK_RANDOM acks `calibrate_time` now needs first."""
+    aes = hex_key_to_bytes(key.aesKeyStr)
+
+    def frame(command: int, body: bytes) -> Frame:
+        return Frame(
+            protocol_type=key.lockVersion.protocolType,
+            sub_version=key.lockVersion.protocolVersion,
+            scene=key.lockVersion.scene,
+            group_id=key.lockVersion.groupId,
+            sub_org=key.lockVersion.orgId,
+            command=command,
+            encrypt=0xAA,
+            data=aes_encrypt(body, aes),
+        )
+
+    return [
+        frame(0x41, bytes([0x41, 0x01]) + (0x87654321).to_bytes(4, "big")),
+        frame(0x30, bytes([0x30, 0x01])),
+    ]
+
+
 class TestSyncTime:
     """`get_lock_time` reads the RTC; `sync_time` corrects only when drifted."""
 
@@ -353,7 +375,7 @@ class TestSyncTime:
             return next(replies)
 
         client._transport.exchange = fake_exchange  # type: ignore[method-assign]
-        drift = asyncio.run(client.sync_time(when=reference))
+        drift = asyncio.run(client.sync_time(local_time=reference))
         assert drift == 1.0
         assert len(sent) == 1  # only the GET_LOCK_TIME exchange
 
@@ -367,6 +389,7 @@ class TestSyncTime:
         replies = iter(
             [
                 _get_lock_time_response_frame(key, lock_time),
+                *_admin_handshake_frames(key),
                 _calibrate_ack_frame(key),
             ]
         )
@@ -376,13 +399,12 @@ class TestSyncTime:
             return next(replies)
 
         client._transport.exchange = fake_exchange  # type: ignore[method-assign]
-        drift = asyncio.run(client.sync_time(when=reference))
+        drift = asyncio.run(client.sync_time(local_time=reference))
         assert drift == -10.0
-        assert len(sent) == 2  # GET_LOCK_TIME + TIME_CALIBRATE
-        assert sent[0].command == 0x34
-        assert sent[1].command == 0x43
+        # GET_LOCK_TIME, then CHECK_ADMIN + CHECK_RANDOM, then TIME_CALIBRATE.
+        assert [frame.command for frame in sent] == [0x34, 0x41, 0x30, 0x43]
         # Calibrate payload should encode the reference datetime (6 decimal bytes).
-        calib_plain = aes_decrypt(sent[1].data, hex_key_to_bytes(key.aesKeyStr))
+        calib_plain = aes_decrypt(sent[3].data, hex_key_to_bytes(key.aesKeyStr))
         assert calib_plain == bytes([26, 5, 20, 12, 0, 0])
 
     def test_sync_time_drops_tzinfo_from_reference(self):
@@ -396,7 +418,7 @@ class TestSyncTime:
             return next(replies)
 
         client._transport.exchange = fake_exchange  # type: ignore[method-assign]
-        drift = asyncio.run(client.sync_time(when=aware_ref))
+        drift = asyncio.run(client.sync_time(local_time=aware_ref))
         assert drift == 1.0
 
 

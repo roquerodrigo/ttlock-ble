@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import datetime as dt
 import logging
 from typing import TYPE_CHECKING, Self
 
@@ -26,6 +25,7 @@ from .models import AutoLockLimits, DeviceInfo, LockEvent, LogEntry
 from .protocol import Frame
 
 if TYPE_CHECKING:
+    import datetime as dt
     from collections.abc import Callable
 
     from bleak import BleakClient
@@ -172,17 +172,34 @@ class TTLockClient:
             await self._control_lock(cmd.CMD_LOCK, ps, "lock")
         self._keep_alive.restart()
 
-    async def calibrate_time(self, when: dt.datetime | None = None) -> None:
-        """Push the current wall-clock time to the lock's RTC.
+    async def calibrate_time(self, local_time: dt.datetime) -> None:
+        """Push a wall-clock time to the lock's RTC, in the lock's local time.
 
         TTLock locks keep their own clock that drifts (no NTP, no
         gateway). Time-windowed keys, schedules, and unlock-log
         timestamps all rely on it being accurate. HA integrations
         typically call this once on connect and then daily.
+
+        Admin-gated: `self.key` needs the lock's admin password, or
+        CHECK_ADMIN fails the same way a missing handshake would (see
+        `_admin_handshake`). Writing the clock is a settings change, and
+        the firmware gates it like the other ones - `get_lock_time` is a
+        read and needs no handshake at all.
+
+        `local_time` is required, and it is **local time**: the lock
+        stores the six wall-clock fields it is handed with no offset
+        attached, and reports them back the same way in `get_lock_time`
+        and in every operation-log record. A lock provisioned by the
+        official app is already keeping local time, so handing it UTC
+        does not "normalise" anything - it moves the lock's clock by the
+        offset and every timestamp it writes from then on. Pass
+        `datetime.now()` on a host in the lock's timezone, or an aware
+        datetime in it (only the displayed fields are read).
         """
         async with self._command_lock:
+            await self._admin_handshake()
             resp = await self._transport.exchange(
-                self._frame(cmd.CMD_TIME_CALIBRATE, cmd.payload_time_calibrate(when))
+                self._frame(cmd.CMD_TIME_CALIBRATE, cmd.payload_time_calibrate(local_time))
             )
             plain = self._decrypt_response(resp, "calibrate_time")
             echo, status, data = self._parse_response_envelope(plain, "calibrate_time")
@@ -202,9 +219,12 @@ class TTLockClient:
         """Read the lock's current RTC as a naive `datetime` (lock-local time).
 
         The lock has no concept of timezone — the returned datetime mirrors
-        whatever wall-clock reference was last pushed via `calibrate_time`
-        (UTC by default). Useful for measuring drift before deciding to
-        recalibrate; `sync_time` combines both steps.
+        whatever wall clock was last pushed via `calibrate_time`, which is
+        the lock's local time. Useful for measuring drift before deciding
+        to recalibrate; `sync_time` combines both steps.
+
+        This one is a plain read: the firmware answers it without the
+        admin handshake `calibrate_time` needs.
         """
         async with self._command_lock:
             resp = await self._transport.exchange(
@@ -221,20 +241,29 @@ class TTLockClient:
     async def sync_time(
         self,
         *,
-        when: dt.datetime | None = None,
+        local_time: dt.datetime,
         drift_threshold_seconds: float = 2.0,
     ) -> float:
         """Read the lock's clock, return drift, recalibrate when it exceeds the threshold.
 
         Returns the drift in seconds (lock minus reference) BEFORE any
         correction — positive when the lock is ahead, negative when it
-        lags. `when` defaults to current UTC, matching `calibrate_time`;
-        passing an aware datetime uses its wall-clock components (tzinfo
-        is dropped to compare against the lock's naive RTC). No calibrate
-        frame is sent when `abs(drift) <= drift_threshold_seconds`, which
-        avoids briefly perturbing the lock's clock on healthy syncs.
+        lags. No calibrate frame is sent when
+        `abs(drift) <= drift_threshold_seconds`, which avoids briefly
+        perturbing the lock's clock on healthy syncs.
+
+        `local_time` is required, and it is **local time** for the same
+        reason `calibrate_time` demands it: the lock's RTC carries no
+        offset, so a reference on a different clock reads as a drift of
+        the whole offset between them and the correction that follows
+        moves the lock onto that other clock. An aware datetime is used
+        for the time it displays, not the instant it denotes.
+
+        The calibrate step is admin-gated - see `calibrate_time`. A
+        within-threshold sync sends no calibrate frame and so needs no
+        admin password.
         """
-        reference = (when or dt.datetime.now(dt.UTC)).replace(tzinfo=None)
+        reference = local_time.replace(tzinfo=None)
         lock_time = await self.get_lock_time()
         drift = (lock_time - reference).total_seconds()
         log.info("sync_time drift = %+.3fs (lock=%s, ref=%s)", drift, lock_time, reference)
@@ -602,16 +631,17 @@ class TTLockClient:
         Unlike `_check_user_time` (used by unlock/lock, proving only that
         the key is currently valid), this authorizes against the lock's
         admin password. `set_lock_sound`, the keyboard-password commands
-        (`add_passcode`/`delete_passcode`/`clear_passcodes`) and the
+        (`add_passcode`/`delete_passcode`/`clear_passcodes`), the
         auto-lock ones
         (`get_auto_lock_time`/`set_auto_lock_time`/`get_auto_lock_limits`)
-        all require it - each group originally shipped with no handshake
-        at all, and real-hardware testing showed the lock rejects them
-        outright without CHECK_ADMIN first (same failure signature
-        `set_lock_sound` had before this was discovered). Auto-lock hid
-        it longer because its parser collapsed a genuine FAILED rejection
-        into the same UNKNOWN sentinel a legitimate no-value response
-        returns.
+        and `calibrate_time` all require it - each group originally
+        shipped with no handshake at all, and real-hardware testing
+        showed the lock rejects them outright without CHECK_ADMIN first
+        (same failure signature `set_lock_sound` had before this was
+        discovered). Auto-lock hid it longer because its parser collapsed
+        a genuine FAILED rejection into the same UNKNOWN sentinel a
+        legitimate no-value response returns. Reads are exempt:
+        `get_lock_time` answers without any handshake.
 
         Checks the admin password before touching the BLE link: it is
         `""` on a key that never carried one, and `payload_check_admin`
