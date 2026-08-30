@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.0...v0.3.1) (2026-08-30)
+
+
+### Features
+
+* **client:** add set_lock_volume() ([2413cb8](https://github.com/roquerodrigo/ttlock-ble/commit/2413cb8047d2f0bd5e46acbf012b5cb6084e80f4))
+
 ## [0.3.0](https://github.com/roquerodrigo/ttlock-ble/compare/v0.2.2...v0.3.0) (2026-08-30)
 
 
