@@ -141,6 +141,8 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock add-passcode <lock> <code>` | Provision a keypad passcode (admin eKey required) |
 | `ttlock delete-passcode <lock> <code>` | Remove a keypad passcode (admin eKey required) |
 | `ttlock clear-passcodes <lock>` | Wipe ALL keypad passcodes — no undo (admin eKey required) |
+| `ttlock get-auto-lock <lock>` | Read the auto-lock delay in seconds (admin eKey required) |
+| `ttlock set-auto-lock <lock> <seconds>` | Set the auto-lock delay in seconds (admin eKey required) |
 
 Typical first run: `ttlock sync` → (if prompted) check email → `ttlock verify <code>` →
 `ttlock sync` again → `ttlock unlock <lock>`.

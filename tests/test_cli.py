@@ -339,3 +339,34 @@ class TestBleCommands:
         result = runner.invoke(cli_module.app, ["clear-passcodes", "2"], input="n\n")
         assert result.exit_code != 0
         client.clear_passcodes.assert_not_awaited()
+
+    def test_get_auto_lock(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_auto_lock_time = AsyncMock(return_value=45)
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-auto-lock", "2", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "auto-lock: 45s" in result.output
+
+    def test_get_auto_lock_unknown(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_auto_lock_time = AsyncMock(return_value=-1)
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-auto-lock", "2"])
+        assert result.exit_code == 0, result.output
+        assert "auto-lock: unknown" in result.output
+
+    def test_set_auto_lock(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.set_auto_lock_time = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["set-auto-lock", "2", "45", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "set to 45s" in result.output
+        client.set_auto_lock_time.assert_awaited_once_with(45)

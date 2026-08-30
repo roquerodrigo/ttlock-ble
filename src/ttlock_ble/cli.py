@@ -1,4 +1,4 @@
-"""Typer-powered `ttlock` CLI: sync, unlock/lock, state/battery, sound, device-info, passcodes."""
+"""Typer-powered `ttlock` CLI: locks, state, sound, device info, passcodes, auto-lock."""
 
 from __future__ import annotations
 
@@ -260,6 +260,33 @@ def clear_passcodes(
     typer.echo("✓ all passcodes cleared")
 
 
+@app.command("get-auto-lock")
+def get_auto_lock(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Read the auto-lock delay in seconds (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    seconds = asyncio.run(_run_get_auto_lock(key))
+    typer.echo(f"auto-lock: {seconds}s" if seconds >= 0 else "auto-lock: unknown")
+
+
+@app.command("set-auto-lock")
+def set_auto_lock(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    seconds: int = typer.Argument(..., help="delay in seconds ('0' disables auto-lock)"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Set the auto-lock delay in seconds (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    asyncio.run(_run_set_auto_lock(key, seconds))
+    typer.echo(f"✓ auto-lock set to {seconds}s")
+
+
 async def _run_unlock(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.unlock()
@@ -298,6 +325,16 @@ async def _run_delete_passcode(key: VirtualKey, code: str) -> None:
 async def _run_clear_passcodes(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.clear_passcodes()
+
+
+async def _run_get_auto_lock(key: VirtualKey) -> int:
+    async with TTLockClient(key) as c:
+        return await c.get_auto_lock_time()
+
+
+async def _run_set_auto_lock(key: VirtualKey, seconds: int) -> None:
+    async with TTLockClient(key) as c:
+        await c.set_auto_lock_time(seconds)
 
 
 if (
