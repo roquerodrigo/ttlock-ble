@@ -138,6 +138,9 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock battery <lock>` | Show battery percentage |
 | `ttlock sound <lock> <on\|off>` | Turn the keypad/lock beep on or off (admin eKey required) |
 | `ttlock device-info <lock>` | Show the standard BLE Device Information Service fields |
+| `ttlock add-passcode <lock> <code>` | Provision a keypad passcode (admin eKey required) |
+| `ttlock delete-passcode <lock> <code>` | Remove a keypad passcode (admin eKey required) |
+| `ttlock clear-passcodes <lock>` | Wipe ALL keypad passcodes — no undo (admin eKey required) |
 
 Typical first run: `ttlock sync` → (if prompted) check email → `ttlock verify <code>` →
 `ttlock sync` again → `ttlock unlock <lock>`.

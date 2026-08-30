@@ -296,3 +296,46 @@ class TestBleCommands:
         assert result.exit_code == 0, result.output
         assert "serial number:     ?" in result.output
         assert "software revision: ?" in result.output
+
+    def test_add_passcode(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.add_passcode = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["add-passcode", "2", "1234", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "1234 added" in result.output
+        client.add_passcode.assert_awaited_once_with("1234")
+
+    def test_delete_passcode(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.delete_passcode = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["delete-passcode", "2", "1234", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "1234 removed" in result.output
+        client.delete_passcode.assert_awaited_once_with("1234")
+
+    def test_clear_passcodes(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.clear_passcodes = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["clear-passcodes", "2", "--yes", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "cleared" in result.output
+        client.clear_passcodes.assert_awaited_once()
+
+    def test_clear_passcodes_aborts_without_confirmation(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.clear_passcodes = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["clear-passcodes", "2"], input="n\n")
+        assert result.exit_code != 0
+        client.clear_passcodes.assert_not_awaited()

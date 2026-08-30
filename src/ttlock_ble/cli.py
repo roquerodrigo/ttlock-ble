@@ -1,4 +1,4 @@
-"""Typer-powered `ttlock` CLI: sync, verify, list, unlock, lock, state, battery, device-info."""
+"""Typer-powered `ttlock` CLI: sync, unlock/lock, state/battery, sound, device-info, passcodes."""
 
 from __future__ import annotations
 
@@ -213,6 +213,53 @@ def device_info(
     typer.echo(f"software revision: {info.software_revision or '?'}")
 
 
+@app.command("add-passcode")
+def add_passcode(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    code: str = typer.Argument(..., help="4-9 digit passcode"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Provision a keypad passcode (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    asyncio.run(_run_add_passcode(key, code))
+    typer.echo(f"✓ passcode {code} added")
+
+
+@app.command("delete-passcode")
+def delete_passcode(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    code: str = typer.Argument(..., help="passcode to remove"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Remove a keypad passcode previously added via add-passcode (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    asyncio.run(_run_delete_passcode(key, code))
+    typer.echo(f"✓ passcode {code} removed")
+
+
+@app.command("clear-passcodes")
+def clear_passcodes(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Wipe ALL keypad passcodes from the lock - no undo (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    if not yes:
+        typer.confirm(
+            f"Wipe every keypad passcode from {key.lockAlias or key.lockMac}?",
+            abort=True,
+        )
+    asyncio.run(_run_clear_passcodes(key))
+    typer.echo("✓ all passcodes cleared")
+
+
 async def _run_unlock(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.unlock()
@@ -236,6 +283,21 @@ async def _run_sound(key: VirtualKey, *, enabled: bool) -> None:
 async def _run_device_info(key: VirtualKey) -> DeviceInfo:
     async with TTLockClient(key) as c:
         return await c.get_device_info()
+
+
+async def _run_add_passcode(key: VirtualKey, code: str) -> None:
+    async with TTLockClient(key) as c:
+        await c.add_passcode(code)
+
+
+async def _run_delete_passcode(key: VirtualKey, code: str) -> None:
+    async with TTLockClient(key) as c:
+        await c.delete_passcode(code)
+
+
+async def _run_clear_passcodes(key: VirtualKey) -> None:
+    async with TTLockClient(key) as c:
+        await c.clear_passcodes()
 
 
 if (
