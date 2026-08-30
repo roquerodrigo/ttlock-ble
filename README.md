@@ -137,6 +137,7 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock state <lock>` | Query current state and battery |
 | `ttlock battery <lock>` | Show battery percentage |
 | `ttlock sound <lock> <on\|off>` | Turn the keypad/lock beep on or off (admin eKey required) |
+| `ttlock volume <lock> <1-5>` | Set the keypad/lock beep volume (admin eKey required; no-op on beeper-only hardware) |
 | `ttlock device-info <lock>` | Show the standard BLE Device Information Service fields |
 | `ttlock add-passcode <lock> <code>` | Provision a keypad passcode (admin eKey required) |
 | `ttlock delete-passcode <lock> <code>` | Remove a keypad passcode (admin eKey required) |
@@ -164,6 +165,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Manage keypad passcodes (admin eKey required) |
 | `get_operation_log()` | Paginated on-device operation log (`list[LogEntry]`) |
 | `set_lock_sound(enabled)` | Turn the keypad/lock beep on or off (admin eKey required) |
+| `set_lock_volume(level)` | Set the keypad/lock beep volume, 1-5 or `LockVolume` (admin eKey required; no-op on beeper-only hardware) |
 | `get_lock_time()` / `calibrate_time(local_time)` / `sync_time(local_time=…)` | Read / align the lock's clock — the reference is the lock's **local** time, and writing it requires an admin eKey |
 | `get_device_info()` | Standard BLE Device Information Service fields (`DeviceInfo`) — no TTLock handshake needed |
 | `add_event_listener(cb)` / `remove_event_listener(cb)` | Subscribe to `LockEvent` pushes |
@@ -183,7 +185,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 ### Models & enums
 
 - **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `AutoLockLimits`
-- **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LogOperate`, `PwdOperateType`
+- **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockVolume`, `LogOperate`, `PwdOperateType`
 - **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP)
 
 ## Home Assistant

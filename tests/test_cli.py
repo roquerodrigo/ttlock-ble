@@ -266,6 +266,30 @@ class TestBleCommands:
         assert result.exit_code != 0
         client.set_lock_sound.assert_not_awaited()
 
+    def test_volume(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.set_lock_volume = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["volume", "2", "3", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "volume set to 3" in result.output
+        client.set_lock_volume.assert_awaited_once_with(3)
+
+    def test_volume_out_of_range_errors_without_reaching_the_lock(
+        self, cli_app, monkeypatch
+    ) -> None:
+        """A level the enum does not know is a typo, not a reason to wake a lock."""
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.set_lock_volume = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["volume", "2", "6"])
+        assert result.exit_code != 0
+        client.set_lock_volume.assert_not_awaited()
+
     def test_device_info(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
         _write_keys(store)

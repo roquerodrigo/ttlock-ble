@@ -23,6 +23,7 @@ EXPECTED_EXPORTS = frozenset(
         "LockEvent",
         "LockState",
         "LockVersion",
+        "LockVolume",
         "LogEntry",
         "LogOperate",
         "PwdOperateType",
@@ -57,6 +58,7 @@ EXPECTED_CLIENT_MEMBERS = frozenset(
         "scan_timeout",
         "set_auto_lock_time",
         "set_lock_sound",
+        "set_lock_volume",
         "sync_time",
         "unlock",
     }

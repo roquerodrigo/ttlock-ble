@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from ._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from .client import TTLockClient
 from .cloud import TTLockCloud
+from .constants import LockVolume
 from .exceptions import CloudError
 from .models import AutoLockLimits, DeviceInfo, VirtualKey
 
@@ -195,6 +196,25 @@ def sound(
     typer.echo(f"✓ sound {state}")
 
 
+@app.command()
+def volume(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    level: int = typer.Argument(..., help="1 (lowest) to 5 (highest)"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Set the keypad/lock beep volume (requires an admin eKey; no-op on beeper-only hardware)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    # Checked here, before anything opens a session: the client rejects an
+    # out-of-range level too, but only after connecting, and waking a
+    # battery lock to tell the user they typed a 9 is a poor trade.
+    if level not in LockVolume:
+        raise typer.BadParameter(f"level must be {min(LockVolume)}-{max(LockVolume)}")
+    key = _resolve_key(target)
+    asyncio.run(_run_volume(key, level))
+    typer.echo(f"✓ volume set to {level}")
+
+
 @app.command("device-info")
 def device_info(
     target: str = typer.Argument(..., help="lockId, alias, or MAC"),
@@ -319,6 +339,11 @@ async def _run_state(key: VirtualKey) -> tuple[LockState | None, int | None]:
 async def _run_sound(key: VirtualKey, *, enabled: bool) -> None:
     async with TTLockClient(key) as c:
         await c.set_lock_sound(enabled=enabled)
+
+
+async def _run_volume(key: VirtualKey, level: int) -> None:
+    async with TTLockClient(key) as c:
+        await c.set_lock_volume(level)
 
 
 async def _run_device_info(key: VirtualKey) -> DeviceInfo:

@@ -28,7 +28,7 @@ from .control import (
     payload_unlock,
 )
 from .envelope import RESPONSE_FAILED, RESPONSE_SUCCESS, parse_response_status
-from .lock_sound import payload_set_lock_sound
+from .lock_sound import payload_set_lock_sound, payload_set_lock_volume
 from .opcodes import (
     APICMD_LOCK_BY_ADMIN,
     APICMD_LOCK_BY_USER,
@@ -113,6 +113,7 @@ __all__ = [
     "payload_passcode_delete",
     "payload_query_state",
     "payload_set_lock_sound",
+    "payload_set_lock_volume",
     "payload_time_calibrate",
     "payload_unlock",
 ]

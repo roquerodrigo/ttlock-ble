@@ -9,7 +9,7 @@ import pytest
 
 from ttlock_ble import commands as cmd
 from ttlock_ble.commands import log_record
-from ttlock_ble.constants import KeyboardPwdType, LockState
+from ttlock_ble.constants import KeyboardPwdType, LockState, LockVolume
 
 if TYPE_CHECKING:
     from ttlock_ble.models import LogEntry
@@ -34,6 +34,21 @@ class TestPayloadBuilders:
 
     def test_set_lock_sound_off(self) -> None:
         assert cmd.payload_set_lock_sound(enabled=False) == bytes([0x02, 0x00])
+
+    def test_set_lock_volume_layout(self) -> None:
+        assert cmd.payload_set_lock_volume(3) == bytes([0x02, 0x01, 3, 0x00])
+
+    def test_set_lock_volume_boundaries_accepted(self) -> None:
+        # LockVolume is an IntEnum, so a named member works anywhere a
+        # plain int does - no separate code path, no signature change.
+        assert cmd.payload_set_lock_volume(LockVolume.LOW) == bytes([0x02, 0x01, 1, 0x00])
+        assert cmd.payload_set_lock_volume(LockVolume.HIGH) == bytes([0x02, 0x01, 5, 0x00])
+
+    def test_set_lock_volume_rejects_out_of_range(self) -> None:
+        with pytest.raises(ValueError, match="1-5"):
+            cmd.payload_set_lock_volume(min(LockVolume) - 1)
+        with pytest.raises(ValueError, match="1-5"):
+            cmd.payload_set_lock_volume(max(LockVolume) + 1)
 
     def test_unlock_uses_explicit_timestamp(self) -> None:
         out = cmd.payload_unlock(0x10, "20", ts_ms=2000)

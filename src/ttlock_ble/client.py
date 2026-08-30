@@ -502,6 +502,34 @@ class TTLockClient:
             self._require_success(plain, "set_lock_sound")
         log.info("lock sound set to %s", "on" if enabled else "off")
 
+    async def set_lock_volume(self, level: int) -> None:
+        """Set the keypad/lock beep volume, `level` 1 (lowest) to 5 (highest).
+
+        Accepts a plain int or one of the named `LockVolume` members
+        (e.g. `LockVolume.HIGH`) - both work, since `LockVolume` is an
+        `IntEnum`.
+
+        Admin-gated - see `set_lock_sound`.
+
+        Confirmed on two different physical locks: on speaker-equipped
+        hardware all 5 levels were accepted and the volume audibly
+        changed; on beeper-only hardware the lock still reports SUCCESS
+        but there is no audible change - a harmless no-op, not an error,
+        so this is safe to call unconditionally without checking the
+        lock's capabilities first.
+
+        Write-only, same limitation as `set_lock_sound` - there is no
+        query opcode for the current volume, so a raise-free return only
+        means the lock accepted the frame, not a live readback.
+        """
+        payload = cmd.payload_set_lock_volume(level)
+        async with self._command_lock:
+            await self._admin_handshake()
+            resp = await self._transport.exchange(self._frame(cmd.CMD_SET_LOCK_SOUND, payload))
+            plain = self._decrypt_response(resp, "set_lock_volume")
+            self._require_success(plain, "set_lock_volume")
+        log.info("lock volume set to %d", level)
+
     async def get_device_info(self) -> DeviceInfo:
         """Read the standard BLE Device Information Service (0x180A), if the lock exposes it.
 

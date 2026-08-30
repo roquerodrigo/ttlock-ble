@@ -17,7 +17,7 @@ import pytest
 import ttlock_ble.ble.device_finder as device_finder_mod
 import ttlock_ble.ble.transport as transport_mod
 from tests.conftest import make_virtual_key
-from ttlock_ble import DeviceInfo, TTLockClient, VirtualKey
+from ttlock_ble import DeviceInfo, LockVolume, TTLockClient, VirtualKey
 from ttlock_ble import commands as cmd
 from ttlock_ble.ble import find_lock_device
 from ttlock_ble.ble.constants import (
@@ -649,6 +649,49 @@ class TestCommands:
         ]
         with pytest.raises(TTLockError, match="Failed to check_random"):
             await client.set_lock_sound(enabled=True)
+
+    async def test_set_lock_volume(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_SET_LOCK_SOUND, _status_plain(cmd.CMD_SET_LOCK_SOUND)),
+        ]
+        await client.set_lock_volume(3)
+
+    async def test_set_lock_volume_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_SET_LOCK_SOUND,
+                _status_plain(cmd.CMD_SET_LOCK_SOUND, cmd.RESPONSE_FAILED),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to set_lock_volume"):
+            await client.set_lock_volume(3)
+
+    async def test_set_lock_volume_admin_check_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.set_lock_volume(3)
+
+    async def test_set_lock_volume_rejects_out_of_range_before_any_exchange(
+        self, patched_connect
+    ) -> None:
+        client, fake, _key = await self._connected(patched_connect)
+        with pytest.raises(ValueError, match="1-5"):
+            await client.set_lock_volume(max(LockVolume) + 1)
+        assert fake.written == []
 
 
 class TestDeviceInfo:
