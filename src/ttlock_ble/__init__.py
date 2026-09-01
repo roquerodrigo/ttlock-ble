@@ -11,6 +11,7 @@ Public API:
     LogEntry       — one row from the lock's on-device operation log
     DeviceInfo     — standard BLE Device Information Service (0x180A) fields
     AutoLockLimits — the lock's own min/max allowed auto-lock delay
+    FingerprintEntry — one enrolled fingerprint (see get_fingerprints's caveat)
     TTLockError    — raised by `TTLockClient` on BLE / protocol failure
     CloudError     — raised by `TTLockCloud` on a non-success HTTP response
 
@@ -34,6 +35,7 @@ from .exceptions import CloudError, TTLockError
 from .models import (
     AutoLockLimits,
     DeviceInfo,
+    FingerprintEntry,
     LockAdvertisement,
     LockEvent,
     LockVersion,
@@ -47,6 +49,7 @@ __all__ = [
     "AutoLockOperate",
     "CloudError",
     "DeviceInfo",
+    "FingerprintEntry",
     "KeyboardPwdType",
     "LockAdvertisement",
     "LockEvent",

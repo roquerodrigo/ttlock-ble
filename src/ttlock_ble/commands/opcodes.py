@@ -23,6 +23,7 @@ CMD_AUTO_LOCK_MANAGE = 0x36
 CMD_MANAGE_KEYBOARD_PASSWORD = 0x03
 CMD_GET_OPERATE_LOG = 0x25
 CMD_SET_LOCK_SOUND = 0x62  # reverse-engineered from device traffic - not in the SDK dump
+CMD_MANAGE_FINGERPRINT = 0x06  # reverse-engineered; only the list sub-op (0x06) is confirmed
 
 APICMD_UNLOCK_BY_USER = 4
 APICMD_LOCK_BY_USER = 14

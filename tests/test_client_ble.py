@@ -16,6 +16,7 @@ import pytest
 
 import ttlock_ble.ble.device_finder as device_finder_mod
 import ttlock_ble.ble.transport as transport_mod
+import ttlock_ble.client as client_mod
 from tests.conftest import make_virtual_key
 from ttlock_ble import DeviceInfo, LockVolume, TTLockClient, VirtualKey
 from ttlock_ble import commands as cmd
@@ -569,6 +570,170 @@ class TestCommands:
         with pytest.raises(TTLockError, match="Failed to authorize as admin"):
             await client.get_auto_lock_limits()
 
+    async def test_get_fingerprints_mixed_permanent_and_timed(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        # Three entries covering every start/end combination the model
+        # distinguishes: permanent with an edited start, timed with a
+        # never-touched (sentinel) start, and timed with an edited start.
+        permanent_edited_start = _fingerprint_entry_plain(
+            position=1,
+            fp_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            slot=1,
+            start=bytes([26, 3, 1, 8, 0]),
+            end=cmd.END_DATE_SENTINEL,
+        )
+        timed_sentinel_start = _fingerprint_entry_plain(
+            position=2,
+            fp_id=bytes([0x00, 0x00, 0x00, 0x2B]),
+            slot=2,
+            start=cmd.START_DATE_SENTINEL,
+            end=bytes([26, 12, 31, 23, 59]),
+        )
+        timed_edited_start = _fingerprint_entry_plain(
+            position=3,
+            fp_id=bytes([0x00, 0x00, 0x00, 0x2C]),
+            slot=3,
+            start=bytes([26, 6, 1, 9, 0]),
+            end=bytes([27, 6, 1, 9, 0]),
+        )
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_FINGERPRINT, permanent_edited_start),
+            _resp_frame(key, cmd.CMD_MANAGE_FINGERPRINT, timed_sentinel_start),
+            _resp_frame(key, cmd.CMD_MANAGE_FINGERPRINT, timed_edited_start),
+            _resp_frame(key, cmd.CMD_MANAGE_FINGERPRINT, _FINGERPRINT_END_OF_LIST),
+        ]
+
+        entries = await client.get_fingerprints()
+
+        assert len(entries) == 3
+        first, second, third = entries
+
+        assert first.fp_id == bytes([0x00, 0x00, 0x00, 0x2A])
+        assert first.slot == 1
+        assert first.start_date == dt.datetime(2026, 3, 1, 8, 0)  # noqa: DTZ001
+        assert first.end_date is None
+        assert first.is_permanent
+        assert first.has_explicit_start
+
+        assert second.start_date is None
+        assert second.end_date == dt.datetime(2026, 12, 31, 23, 59)  # noqa: DTZ001
+        assert not second.is_permanent
+        assert not second.has_explicit_start
+
+        assert third.start_date == dt.datetime(2026, 6, 1, 9, 0)  # noqa: DTZ001
+        assert third.end_date == dt.datetime(2027, 6, 1, 9, 0)  # noqa: DTZ001
+        assert not third.is_permanent
+        assert third.has_explicit_start
+
+    async def test_get_fingerprints_empty_list(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_FINGERPRINT, _FINGERPRINT_END_OF_LIST),
+        ]
+
+        entries = await client.get_fingerprints()
+
+        assert entries == []
+
+    async def test_get_fingerprints_empty_list_matches_captured_hardware_bytes(
+        self, patched_connect
+    ) -> None:
+        # Regression test for a real bug: this exact 6-byte plaintext, from
+        # a lock with zero enrolled fingerprints, used to raise "payload
+        # too short" instead of returning [] - the literal 3-byte
+        # end-of-list match this test file's own fixtures were written
+        # against never actually occurs on the wire. See
+        # commands/fingerprint.py's module comment for the decode.
+        client, fake, key = await self._connected(patched_connect)
+        captured_plain = bytes.fromhex("06016406ffff")
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_FINGERPRINT, captured_plain),
+        ]
+
+        entries = await client.get_fingerprints()
+
+        assert entries == []
+
+    async def test_get_fingerprints_admin_check_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.get_fingerprints()
+
+    async def test_get_fingerprints_rejected_mid_scan_raises(self, patched_connect) -> None:
+        # A genuine FAILED partway through must not be swallowed into a
+        # silently-truncated list - the caller needs to know the scan
+        # didn't complete.
+        client, fake, key = await self._connected(patched_connect)
+        first_entry = _fingerprint_entry_plain(
+            position=1,
+            fp_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            slot=1,
+            start=cmd.START_DATE_SENTINEL,
+            end=cmd.END_DATE_SENTINEL,
+        )
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_FINGERPRINT, first_entry),
+            _resp_frame(
+                key,
+                cmd.CMD_MANAGE_FINGERPRINT,
+                bytes([cmd.CMD_MANAGE_FINGERPRINT, cmd.RESPONSE_FAILED, 0x02]),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to get_fingerprints"):
+            await client.get_fingerprints()
+
+    async def test_get_fingerprints_credential_not_found_raises_clearly(
+        self, patched_connect
+    ) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_MANAGE_FINGERPRINT,
+                bytes([cmd.CMD_MANAGE_FINGERPRINT, cmd.RESPONSE_FAILED, 0x1A]),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="credential not found"):
+            await client.get_fingerprints()
+
+    async def test_get_fingerprints_exceeds_safety_cap_raises(
+        self, patched_connect, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(client_mod, "_MAX_FINGERPRINT_ENTRIES", 2)
+        client, fake, key = await self._connected(patched_connect)
+        entry = _fingerprint_entry_plain(
+            position=1,
+            fp_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            slot=1,
+            start=cmd.START_DATE_SENTINEL,
+            end=cmd.END_DATE_SENTINEL,
+        )
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_FINGERPRINT, entry),
+            _resp_frame(key, cmd.CMD_MANAGE_FINGERPRINT, entry),
+        ]
+        with pytest.raises(TTLockError, match="exceeded safety cap"):
+            await client.get_fingerprints()
+
     async def test_set_lock_sound_on(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [
@@ -983,3 +1148,29 @@ def _check_user_time_plain() -> bytes:
 def _check_admin_plain() -> bytes:
     """Build a CHECK_ADMIN response the client can parse for its random token."""
     return bytes([cmd.CMD_CHECK_ADMIN, 0x01]) + (0x87654321).to_bytes(4, "big")
+
+
+def _fingerprint_entry_plain(
+    *, position: int, fp_id: bytes, slot: int, start: bytes, end: bytes
+) -> bytes:
+    """Build one CMD 0x06/0x06 SUCCESS response for a non-empty entry.
+
+    Matches the confirmed wire layout - see
+    `parse_fingerprint_list_response`'s docstring.
+    """
+    data = (
+        bytes([0x64, 0x06])
+        + position.to_bytes(2, "big")
+        + fp_id
+        + slot.to_bytes(2, "big")
+        + start
+        + end
+    )
+    return bytes([cmd.CMD_MANAGE_FINGERPRINT, cmd.RESPONSE_SUCCESS]) + data
+
+
+# Confirmed on real hardware (an empty enrollment): SUCCESS status, data =
+# [battery][op_echo=0x06][0xFF][0xFF] - see commands/fingerprint.py.
+_FINGERPRINT_END_OF_LIST = bytes(
+    [cmd.CMD_MANAGE_FINGERPRINT, cmd.RESPONSE_SUCCESS, 0x64, cmd.CMD_MANAGE_FINGERPRINT, 0xFF, 0xFF]
+)

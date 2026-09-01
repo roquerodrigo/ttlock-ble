@@ -1,4 +1,4 @@
-"""Typer-powered `ttlock` CLI: locks, state, sound, device info, passcodes, auto-lock."""
+"""Typer-powered `ttlock` CLI: locks, state, sound, passcodes, auto-lock, fingerprints."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from .client import TTLockClient
 from .cloud import TTLockCloud
 from .constants import LockVolume
 from .exceptions import CloudError
-from .models import AutoLockLimits, DeviceInfo, VirtualKey
+from .models import AutoLockLimits, DeviceInfo, FingerprintEntry, VirtualKey
 
 if TYPE_CHECKING:
     from .constants import LockState
@@ -321,6 +321,28 @@ def get_auto_lock_limits(
     typer.echo(f"max: {limits.max_allowed}s")
 
 
+@app.command("get-fingerprints")
+def get_fingerprints(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """List enrolled fingerprints (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    entries = asyncio.run(_run_get_fingerprints(key))
+    if not entries:
+        typer.echo("no fingerprints enrolled")
+    for entry in entries:
+        start = "not set" if entry.start_date is None else entry.start_date.isoformat(sep=" ")
+        end = "permanent" if entry.end_date is None else entry.end_date.isoformat(sep=" ")
+        typer.echo(f"  slot={entry.slot:<3} fp_id={entry.fp_id.hex()}  start={start}  end={end}")
+    typer.echo(
+        "note: this cannot detect cyclic (day-of-week/time-range) restrictions - "
+        "a fingerprint above may still be limited to specific days/hours."
+    )
+
+
 async def _run_unlock(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.unlock()
@@ -379,6 +401,11 @@ async def _run_set_auto_lock(key: VirtualKey, seconds: int) -> None:
 async def _run_get_auto_lock_limits(key: VirtualKey) -> AutoLockLimits:
     async with TTLockClient(key) as c:
         return await c.get_auto_lock_limits()
+
+
+async def _run_get_fingerprints(key: VirtualKey) -> list[FingerprintEntry]:
+    async with TTLockClient(key) as c:
+        return await c.get_fingerprints()
 
 
 if (

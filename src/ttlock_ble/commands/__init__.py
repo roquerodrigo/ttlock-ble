@@ -5,9 +5,9 @@ official Android SDK. We focus on `lockType=5` (V3), which covers virtually
 every current DLock-XP / TTLock smart-lock SKU.
 
 One submodule per command family — `session` for the handshake, `control`
-for the bolt, `clock`, `auto_lock`, `passcode`, `operate_log` and
-`lock_sound` for the rest — over the shared `opcodes`, `envelope` and
-`encoding` primitives.
+for the bolt, `clock`, `auto_lock`, `passcode`, `operate_log`,
+`lock_sound` and `fingerprint` for the rest — over the shared `opcodes`,
+`envelope` and `encoding` primitives.
 """
 
 from __future__ import annotations
@@ -28,6 +28,14 @@ from .control import (
     payload_unlock,
 )
 from .envelope import RESPONSE_FAILED, RESPONSE_SUCCESS, parse_response_status
+from .fingerprint import (
+    END_DATE_SENTINEL,
+    END_DATE_SENTINEL_DT,
+    START_DATE_SENTINEL,
+    START_DATE_SENTINEL_DT,
+    parse_fingerprint_list_response,
+    payload_fingerprint_list,
+)
 from .lock_sound import payload_set_lock_sound, payload_set_lock_volume
 from .opcodes import (
     APICMD_LOCK_BY_ADMIN,
@@ -43,6 +51,7 @@ from .opcodes import (
     CMD_GET_OPERATE_LOG,
     CMD_INIT_PASSWORDS,
     CMD_LOCK,
+    CMD_MANAGE_FINGERPRINT,
     CMD_MANAGE_KEYBOARD_PASSWORD,
     CMD_QUERY_STATE,
     CMD_RESPONSE,
@@ -78,6 +87,7 @@ __all__ = [
     "CMD_GET_OPERATE_LOG",
     "CMD_INIT_PASSWORDS",
     "CMD_LOCK",
+    "CMD_MANAGE_FINGERPRINT",
     "CMD_MANAGE_KEYBOARD_PASSWORD",
     "CMD_QUERY_STATE",
     "CMD_RESPONSE",
@@ -86,15 +96,20 @@ __all__ = [
     "CMD_SWITCH",
     "CMD_TIME_CALIBRATE",
     "CMD_UNLOCK",
+    "END_DATE_SENTINEL",
+    "END_DATE_SENTINEL_DT",
     "LOCKED",
     "RESPONSE_FAILED",
     "RESPONSE_SUCCESS",
+    "START_DATE_SENTINEL",
+    "START_DATE_SENTINEL_DT",
     "UNLOCKED",
     "VENDOR",
     "parse_auto_lock_limits_response",
     "parse_auto_lock_response",
     "parse_check_admin_response",
     "parse_check_user_time_response",
+    "parse_fingerprint_list_response",
     "parse_get_lock_time_response",
     "parse_lock_status",
     "parse_operate_log_response",
@@ -105,6 +120,7 @@ __all__ = [
     "payload_check_admin",
     "payload_check_random",
     "payload_check_user_time",
+    "payload_fingerprint_list",
     "payload_get_aes_key",
     "payload_get_lock_time",
     "payload_operate_log_request",

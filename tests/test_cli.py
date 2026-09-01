@@ -7,6 +7,7 @@ against an in-memory key cache written to a tmp path.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
@@ -15,7 +16,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import make_virtual_key
-from ttlock_ble import AutoLockLimits, DeviceInfo, LockState
+from ttlock_ble import AutoLockLimits, DeviceInfo, FingerprintEntry, LockState
 from ttlock_ble._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from ttlock_ble.exceptions import CloudError
 
@@ -407,3 +408,42 @@ class TestBleCommands:
         assert result.exit_code == 0, result.output
         assert "min: 1s" in result.output
         assert "max: 900s" in result.output
+
+    def test_get_fingerprints(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_fingerprints = AsyncMock(
+            return_value=[
+                FingerprintEntry(
+                    fp_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+                    slot=1,
+                    start_date=dt.datetime(2026, 3, 1, 8, 0),  # noqa: DTZ001
+                    end_date=None,
+                ),
+                FingerprintEntry(
+                    fp_id=bytes([0x00, 0x00, 0x00, 0x2B]),
+                    slot=2,
+                    start_date=None,
+                    end_date=dt.datetime(2026, 12, 31, 23, 59),  # noqa: DTZ001
+                ),
+            ]
+        )
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-fingerprints", "2", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "slot=1" in result.output
+        assert "end=permanent" in result.output
+        assert "slot=2" in result.output
+        assert "start=not set" in result.output
+        assert "cyclic" in result.output
+
+    def test_get_fingerprints_empty(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_fingerprints = AsyncMock(return_value=[])
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-fingerprints", "2"])
+        assert result.exit_code == 0, result.output
+        assert "no fingerprints enrolled" in result.output

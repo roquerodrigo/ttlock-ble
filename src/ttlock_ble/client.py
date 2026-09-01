@@ -21,7 +21,7 @@ from .ble.constants import (
 from .constants import KeyboardPwdType, LockState
 from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError
-from .models import AutoLockLimits, DeviceInfo, LockEvent, LogEntry
+from .models import AutoLockLimits, DeviceInfo, FingerprintEntry, LockEvent, LogEntry
 from .protocol import Frame
 
 if TYPE_CHECKING:
@@ -37,6 +37,11 @@ if TYPE_CHECKING:
     EventListener = Callable[[LockEvent], None]
 
 log: logging.Logger = logging.getLogger("ttlock_ble.client")
+
+# Guards `get_fingerprints` against looping forever if a lock never sends
+# the end-of-list response - no confirmed lock has enrolled anywhere near
+# this many fingerprints.
+_MAX_FINGERPRINT_ENTRIES = 50
 
 
 class TTLockClient:
@@ -478,6 +483,55 @@ class TTLockClient:
                 next_seq = last_seq
             return all_entries
 
+    async def get_fingerprints(self) -> list[FingerprintEntry]:
+        """Read every enrolled fingerprint via the confirmed indexed CMD 0x06/0x06 query.
+
+        Admin-gated - see `set_lock_sound`.
+
+        Loops the index from 0, one BLE round-trip per fingerprint, over
+        a single connection and a single admin handshake - matching how
+        the official app itself was observed doing it (no reconnect per
+        index). Stops cleanly at the lock's own end-of-list response.
+        Raises `TTLockError` if the lock never sends it within
+        `_MAX_FINGERPRINT_ENTRIES` queries, rather than silently
+        returning a possibly-incomplete list.
+
+        Known limitation: this cannot detect whether a fingerprint also
+        has a cyclic (day-of-week/time-range) restriction - that data
+        lives in a separate mechanism (CMD 0x70) this method doesn't
+        query. A fingerprint returned here as permanent or timed may in
+        practice also be restricted to specific days/hours. Do not treat
+        the absence of that information as confirmation a fingerprint is
+        unrestricted.
+
+        Both the empty-list case and a real multi-entry result are
+        confirmed on hardware - see
+        `commands.fingerprint.parse_fingerprint_list_response` for how.
+        """
+        async with self._command_lock:
+            await self._admin_handshake()
+            entries: list[FingerprintEntry] = []
+            for index in range(_MAX_FINGERPRINT_ENTRIES):
+                resp = await self._transport.exchange(
+                    self._frame(cmd.CMD_MANAGE_FINGERPRINT, cmd.payload_fingerprint_list(index))
+                )
+                plain = self._decrypt_response(resp, "get_fingerprints")
+                log.debug("fingerprint list response plaintext: %s", plain.hex())
+                try:
+                    entry = cmd.parse_fingerprint_list_response(plain)
+                except (RuntimeError, ValueError) as error:
+                    raise TTLockError(f"Failed to get_fingerprints: {error}") from error
+                if entry is None:
+                    break
+                entries.append(entry)
+            else:
+                raise TTLockError(
+                    f"Failed to get_fingerprints: exceeded safety cap of "
+                    f"{_MAX_FINGERPRINT_ENTRIES} entries without an end-of-list response"
+                )
+        log.info("fetched %d fingerprint(s)", len(entries))
+        return entries
+
     async def set_lock_sound(self, *, enabled: bool) -> None:
         """Turn the keypad/lock beep on or off.
 
@@ -662,14 +716,18 @@ class TTLockClient:
         (`add_passcode`/`delete_passcode`/`clear_passcodes`), the
         auto-lock ones
         (`get_auto_lock_time`/`set_auto_lock_time`/`get_auto_lock_limits`)
-        and `calibrate_time` all require it - each group originally
-        shipped with no handshake at all, and real-hardware testing
-        showed the lock rejects them outright without CHECK_ADMIN first
-        (same failure signature `set_lock_sound` had before this was
-        discovered). Auto-lock hid it longer because its parser collapsed
-        a genuine FAILED rejection into the same UNKNOWN sentinel a
-        legitimate no-value response returns. Reads are exempt:
-        `get_lock_time` answers without any handshake.
+        and `calibrate_time` all require it - each of those groups
+        originally shipped with no handshake at all, and real-hardware
+        testing showed the lock rejects them outright without
+        CHECK_ADMIN first (same failure signature `set_lock_sound` had
+        before this was discovered). Auto-lock hid it longer because its
+        parser collapsed a genuine FAILED rejection into the same
+        UNKNOWN sentinel a legitimate no-value response returns.
+
+        `get_fingerprints` requires it too, confirmed from the start
+        rather than found as a later fix. Not every read needs it,
+        though: `get_lock_time` answers without any handshake, while
+        `get_fingerprints` - also a read - does not get that exemption.
 
         Checks the admin password before touching the BLE link: it is
         `""` on a key that never carried one, and `payload_check_admin`

@@ -145,6 +145,7 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock get-auto-lock <lock>` | Read the auto-lock delay in seconds (admin eKey required) |
 | `ttlock set-auto-lock <lock> <seconds>` | Set the auto-lock delay in seconds (admin eKey required) |
 | `ttlock get-auto-lock-limits <lock>` | Show the min/max auto-lock delay this lock accepts (admin eKey required) |
+| `ttlock get-fingerprints <lock>` | List enrolled fingerprints (admin eKey required) |
 
 Typical first run: `ttlock sync` → (if prompted) check email → `ttlock verify <code>` →
 `ttlock sync` again → `ttlock unlock <lock>`.
@@ -162,6 +163,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `query_state()` | `(LockState \| None, battery_percent \| None)` |
 | `get_auto_lock_time()` / `set_auto_lock_time(seconds)` | Read / set the auto-lock delay (admin eKey required) |
 | `get_auto_lock_limits()` | Min/max auto-lock delay this lock accepts (`AutoLockLimits`, admin eKey required) |
+| `get_fingerprints()` | Enrolled fingerprints (`list[FingerprintEntry]`, admin eKey required) — see its docstring: blind to cyclic (day/time) restrictions |
 | `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Manage keypad passcodes (admin eKey required) |
 | `get_operation_log()` | Paginated on-device operation log (`list[LogEntry]`) |
 | `set_lock_sound(enabled)` | Turn the keypad/lock beep on or off (admin eKey required) |
@@ -184,7 +186,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 ### Models & enums
 
-- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `AutoLockLimits`
+- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `AutoLockLimits`, `FingerprintEntry`
 - **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockVolume`, `LogOperate`, `PwdOperateType`
 - **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP)
 
