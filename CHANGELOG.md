@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.1...v0.3.2) (2026-09-02)
+
+
+### Documentation
+
+* add GitHub Sponsors button and support section ([a08024d](https://github.com/roquerodrigo/ttlock-ble/commit/a08024d9ed788ac9ba3359c040824086afd7cf77))
+
 ## [0.3.1](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.0...v0.3.1) (2026-08-30)
 
 
