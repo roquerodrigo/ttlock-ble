@@ -3,6 +3,8 @@
 [![CI](https://github.com/roquerodrigo/ttlock-ble/actions/workflows/ci.yml/badge.svg)](https://github.com/roquerodrigo/ttlock-ble/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/ttlock-ble)](https://pypi.org/project/ttlock-ble/)
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/roquerodrigo)
+
 Async Python SDK for controlling **TTLock-family smart locks** (TTLock / DLock-XP) over **Bluetooth Low Energy** — lock, unlock, state and battery, passcode management, on-device operation log, and real-time push events, with no cloud round-trip on every operation.
 
 > ⚠️ **Unofficial.** Not affiliated with, endorsed by, or supported by TTLock / Sciener
@@ -204,6 +206,10 @@ uv run pytest        # tests
 uv run ruff check .  # lint
 uv run mypy src      # types
 ```
+
+## Support
+
+This SDK is built and maintained on personal time, on hardware bought for the purpose. If it is useful to you, consider [sponsoring the work](https://github.com/sponsors/roquerodrigo) — it keeps the devices, the testing and the releases coming.
 
 ## License
 
