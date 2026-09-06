@@ -72,6 +72,6 @@ def decode_mac6(raw: bytes) -> str:
     return ":".join(f"{octet:02x}" for octet in reversed(raw))
 
 
-def decode_ascii_z(raw: bytes) -> str:
+def decode_null_terminated_ascii(raw: bytes) -> str:
     r"""Decode a null-terminated ASCII string, stopping at the first `\x00`."""
     return raw.split(b"\x00", 1)[0].decode("ascii")

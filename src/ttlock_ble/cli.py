@@ -242,13 +242,13 @@ def get_device_properties(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    props = asyncio.run(_run_get_device_properties(key))
-    typer.echo(f"model variant:     {props.model_variant}")
-    typer.echo(f"hardware revision: {props.hardware_revision}")
-    typer.echo(f"firmware version:  {props.firmware_version}")
-    typer.echo(f"hardware id:       {props.hardware_id}")
-    typer.echo(f"MAC address:       {props.mac_address}")
-    typer.echo(f"clock time:        {props.clock_time.isoformat(sep=' ')}")
+    properties = asyncio.run(_run_get_device_properties(key))
+    typer.echo(f"model variant:     {properties.model_variant}")
+    typer.echo(f"hardware revision: {properties.hardware_revision}")
+    typer.echo(f"firmware version:  {properties.firmware_version}")
+    typer.echo(f"hardware id:       {properties.hardware_id}")
+    typer.echo(f"MAC address:       {properties.mac_address}")
+    typer.echo(f"clock time:        {properties.clock_time.isoformat(sep=' ')}")
 
 
 @app.command("add-passcode")

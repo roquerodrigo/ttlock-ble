@@ -973,14 +973,14 @@ class TestDeviceProperties:
             _resp_frame(key, cmd.CMD_GET_DEVICE_PROPERTIES, bytes.fromhex("90011a081d172f34")),
         ]
 
-        props = await client.get_device_properties()
+        properties = await client.get_device_properties()
 
-        assert props.model_variant == "SN478_PV53"
-        assert props.hardware_revision == "1.2"
-        assert props.firmware_version == "6.4.43.240529"
-        assert props.hardware_id == "2b6eaae3"
-        assert props.mac_address == "76:44:55:3D:0D:BC"
-        assert props.clock_time == dt.datetime(2026, 8, 29, 23, 47, 52)  # noqa: DTZ001 -- lock RTC is naive
+        assert properties.model_variant == "SN478_PV53"
+        assert properties.hardware_revision == "1.2"
+        assert properties.firmware_version == "6.4.43.240529"
+        assert properties.hardware_id == "2b6eaae3"
+        assert properties.mac_address == "76:44:55:3D:0D:BC"
+        assert properties.clock_time == dt.datetime(2026, 8, 29, 23, 47, 52)  # noqa: DTZ001 -- lock RTC is naive
 
     async def test_admin_check_rejected_raises(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)

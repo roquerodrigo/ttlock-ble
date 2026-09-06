@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .encoding import decode_ascii_z, decode_date6, decode_mac6
+from .encoding import decode_date6, decode_mac6, decode_null_terminated_ascii
 from .envelope import RESPONSE_SUCCESS, parse_response_status
 
 if TYPE_CHECKING:
@@ -57,18 +57,17 @@ def parse_device_property_string(plaintext: bytes) -> str:
     the standard BLE Device Information Service), step 3 a firmware
     version string, step 4 a hardware/serial ID.
     """
-    return decode_ascii_z(_property_data(plaintext))
+    return decode_null_terminated_ascii(_property_data(plaintext))
 
 
 def parse_device_property_mac(plaintext: bytes) -> str:
     """Decode the step 5 response: the lock's own BLE MAC, byte-reversed on the wire.
 
     Confirmed via cross-device testing (3 locks): the decoded address
-    matched each lock's real MAC exactly. Uppercased to match this
-    library's MAC-formatting convention elsewhere (VirtualKey.lockMac,
-    capture labels, etc.) - decode_mac6 itself defaults to lowercase for
-    its other existing callers, so the uppercasing happens here rather
-    than in that shared utility.
+    matched each lock's real MAC exactly. Uppercased to match
+    `VirtualKey.lockMac`; `decode_mac6` stays lowercase for its other
+    callers, so the uppercasing happens here rather than in that shared
+    helper.
     """
     return decode_mac6(_property_data(plaintext)).upper()
 

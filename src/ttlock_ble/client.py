@@ -635,17 +635,17 @@ class TTLockClient:
         Admin-gated by default, though that is unconfirmed in isolation:
         this opcode has only ever been observed inside an
         already-admin-handshaked session. Every other command
-        investigated this session that skipped the handshake failed with
-        the same 0x02 signature (see `_admin_handshake`), so the
-        handshake runs defensively here too; a lock that turns out not to
-        need it just pays for one extra round trip.
+        investigated so far that skipped the handshake failed with the
+        same 0x02 signature (see `_admin_handshake`), so the handshake
+        runs defensively here too; a lock that turns out not to need it
+        just pays for one extra round trip.
 
         Confirmed on 3 physical locks across 2 hardware families - see
         `DeviceProperties` for the per-lock findings, including the open
-        question around Laundry's "-NS" model suffix. The step count is
-        fixed at 6, not discovered by probing for an end: step 7 cleanly
-        errors with 0x19 ("unrecognized step") on every lock tested, so
-        this method never sends it.
+        question around the "-NS" model suffix. The step count is fixed
+        at 6, not discovered by probing for an end: step 7 cleanly errors
+        with 0x19 ("unrecognized step") on every lock tested, so this
+        method never sends it.
         """
         async with self._command_lock:
             await self._admin_handshake()
