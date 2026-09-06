@@ -1,6 +1,8 @@
 """TTLock-proprietary device properties - CMD 0x90, steps 1-6 (a fixed, indexed query).
 
-Reverse-engineered from device traffic, confirmed on 3 physical locks across
+`COMM_READ_DEVICE_INFO` in the official SDK, whose `DeviceInfoType` names
+steps 1-4 (`MODEL_NUMBER`, `HARDWARE_REVISION`, `FIRMWARE_REVISION`,
+`MANUFACTURE_DATE`); steps 5 and 6 were confirmed on 3 physical locks across
 2 hardware families. Distinct from the standard BLE Device Information
 Service (see `models.DeviceInfo`): this is TTLock's own encrypted command
 protocol, exposing different data, and gated behind the admin handshake -
@@ -55,7 +57,8 @@ def parse_device_property_string(plaintext: bytes) -> str:
     Confirmed exact plaintexts: step 1 is the model variant (e.g.
     "SN478_PV53"), step 2 the hardware revision (cross-confirmed against
     the standard BLE Device Information Service), step 3 a firmware
-    version string, step 4 a hardware/serial ID.
+    version string, step 4 the manufacture date - an opaque string in the
+    official SDK as well (`factoryDate`), e.g. "2b6eaae3".
     """
     return decode_null_terminated_ascii(_property_data(plaintext))
 

@@ -689,7 +689,7 @@ class TTLockClient:
         handshake. This is TTLock's own encrypted command protocol,
         exposing different data entirely - model variant, hardware
         revision (cross-confirmed against the standard GATT one),
-        firmware version, hardware ID, MAC address and RTC - each read
+        firmware version, manufacture date, MAC address and RTC - each read
         via its own indexed step (1-6) of the same opcode, in one
         connection and one admin handshake.
 
@@ -720,7 +720,7 @@ class TTLockClient:
                 firmware_version = cmd.parse_device_property_string(
                     await self._device_property_exchange(3)
                 )
-                hardware_id = cmd.parse_device_property_string(
+                manufacture_date = cmd.parse_device_property_string(
                     await self._device_property_exchange(4)
                 )
                 mac_address = cmd.parse_device_property_mac(await self._device_property_exchange(5))
@@ -733,7 +733,7 @@ class TTLockClient:
             model_variant=model_variant,
             hardware_revision=hardware_revision,
             firmware_version=firmware_version,
-            hardware_id=hardware_id,
+            manufacture_date=manufacture_date,
             mac_address=mac_address,
             clock_time=clock_time,
         )

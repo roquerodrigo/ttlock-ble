@@ -261,7 +261,7 @@ def get_device_properties(
     typer.echo(f"model variant:     {properties.model_variant}")
     typer.echo(f"hardware revision: {properties.hardware_revision}")
     typer.echo(f"firmware version:  {properties.firmware_version}")
-    typer.echo(f"hardware id:       {properties.hardware_id}")
+    typer.echo(f"manufacture date:  {properties.manufacture_date}")
     typer.echo(f"MAC address:       {properties.mac_address}")
     typer.echo(f"clock time:        {properties.clock_time.isoformat(sep=' ')}")
 

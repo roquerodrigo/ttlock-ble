@@ -334,7 +334,7 @@ class TestDeviceProperties:
         plain = bytes.fromhex("9001362e342e34332e32343035323900")
         assert cmd.parse_device_property_string(plain) == "6.4.43.240529"
 
-    def test_step4_hardware_id(self) -> None:
+    def test_step4_manufacture_date(self) -> None:
         plain = bytes.fromhex("9001326236656161653300")
         assert cmd.parse_device_property_string(plain) == "2b6eaae3"
 

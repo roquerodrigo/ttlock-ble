@@ -340,7 +340,7 @@ class TestBleCommands:
                 model_variant="SN478_PV53",
                 hardware_revision="1.2",
                 firmware_version="6.4.43.240529",
-                hardware_id="2b6eaae3",
+                manufacture_date="2b6eaae3",
                 mac_address="76:44:55:3D:0D:BC",
                 clock_time=dt.datetime(2026, 8, 29, 23, 47, 52),  # noqa: DTZ001 -- lock RTC is naive
             )

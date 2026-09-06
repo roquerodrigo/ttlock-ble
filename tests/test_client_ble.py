@@ -1107,7 +1107,7 @@ class TestDeviceProperties:
         assert properties.model_variant == "SN478_PV53"
         assert properties.hardware_revision == "1.2"
         assert properties.firmware_version == "6.4.43.240529"
-        assert properties.hardware_id == "2b6eaae3"
+        assert properties.manufacture_date == "2b6eaae3"
         assert properties.mac_address == "76:44:55:3D:0D:BC"
         assert properties.clock_time == dt.datetime(2026, 8, 29, 23, 47, 52)  # noqa: DTZ001 -- lock RTC is naive
 

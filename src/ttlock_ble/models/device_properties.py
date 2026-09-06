@@ -21,11 +21,17 @@ class DeviceProperties:
     "-NS" model suffix is an open question: "no speaker" was directly
     contradicted (that lock has a real beeper), and "has a keypad" does
     not distinguish it either (another tested lock has one too).
+
+    Field names follow the official SDK's `DeviceInfoType` where it names
+    the step: `manufacture_date` is its `MANUFACTURE_DATE` (kept as the
+    opaque `factoryDate` string there too - the observed value does not
+    decode as a calendar date). Steps 5 and 6 have no SDK name; `mac_address`
+    and `clock_time` are what real hardware returns for them.
     """
 
     model_variant: str
     hardware_revision: str
     firmware_version: str
-    hardware_id: str
+    manufacture_date: str
     mac_address: str
     clock_time: dt.datetime
