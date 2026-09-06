@@ -9,7 +9,7 @@ import pytest
 
 from ttlock_ble import commands as cmd
 from ttlock_ble.commands import log_record
-from ttlock_ble.constants import KeyboardPwdType, LockState, LockVolume
+from ttlock_ble.constants import KeyboardPwdType, LockState, LockVolume, LogOperate
 from ttlock_ble.models import CyclicSchedule
 
 if TYPE_CHECKING:
@@ -757,10 +757,40 @@ class TestLogRecordVariants:
         entries, _ = cmd.parse_operate_log_response(plain)
         assert entries[0].accessory_battery == 42
 
-    def test_short_id_record(self) -> None:
-        plain = _log_frame_plain([self._record(57, bytes([0x12, 0x34]))], sequence=3)
+    @pytest.mark.parametrize(
+        "record_type",
+        [
+            LogOperate.QR_CODE_UNLOCK_SUCCESS,
+            LogOperate.QR_CODE_UNLOCK_FAILED,
+            LogOperate.QR_CODE_LOCK_SUCCESS,
+            LogOperate.QR_CODE_UNLOCK_FAILED_LOCK_REVERSE,
+        ],
+    )
+    def test_short_id_record(self, record_type: LogOperate) -> None:
+        plain = _log_frame_plain([self._record(record_type, bytes([0x12, 0x34]))], sequence=3)
         entries, _ = cmd.parse_operate_log_response(plain)
+        assert entries[0].record_type is record_type
         assert entries[0].password == str(0x1234)
+
+    @pytest.mark.parametrize(
+        ("record_type", "expected"),
+        [
+            (50, LogOperate.HIGH_TEMPERATURE_UNLOCK),
+            (64, LogOperate.DOOR_NOT_CLOSE_ALARM),
+            (107, LogOperate.ANLANGJIE_LOG),
+            (111, LogOperate.LOW_BATTERY_AUTO_UNLOCK),
+            (115, LogOperate.HIGH_TEMPERATURE_ALARM),
+            (116, LogOperate.FIRE_ALARM),
+            (249, LogOperate.GET_NFC_LOCK_STATE),
+        ],
+    )
+    def test_alarm_and_vendor_records_are_named_and_carry_no_tail(
+        self, record_type: int, expected: LogOperate
+    ) -> None:
+        plain = _log_frame_plain([self._record(record_type, bytes([1, 2, 3]))], sequence=3)
+        entries, _ = cmd.parse_operate_log_response(plain)
+        assert entries[0].record_type is expected
+        assert entries[0].password is None
 
     def test_six_byte_id_record(self) -> None:
         tail = (0x0A0B0C0D0E0F).to_bytes(6, "big")

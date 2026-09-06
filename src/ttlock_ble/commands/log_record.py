@@ -189,7 +189,7 @@ _TAIL_DECODERS_BY_BUCKET: tuple[tuple[frozenset[int], _TailDecoder], ...] = (
     (frozenset({19}), _decode_mac_only),
     (frozenset({55, 82}), _decode_key_fob),
     (frozenset({56}), _decode_wireless_keypad),
-    (frozenset({57, 58}), _decode_short_id),
+    (frozenset({57, 58, 61, 62}), _decode_short_id),
     (frozenset({67, 68, 69, 70, 71, 72, 81, 83, 84, 85, 86, 87, 88, 89}), _decode_six_byte_id),
     (frozenset({93}), _decode_added_passcode),
     (frozenset({94, 95, 96, 97, 98, 99, 100}), _decode_mac_only),
