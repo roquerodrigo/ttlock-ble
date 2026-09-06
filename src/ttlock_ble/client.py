@@ -48,10 +48,11 @@ if TYPE_CHECKING:
 
 log: logging.Logger = logging.getLogger("ttlock_ble.client")
 
-# No confirmed lock enrols anywhere near this many; see `get_fingerprints`.
-_MAX_FINGERPRINT_ENTRIES = 50
-# No confirmed lock holds anywhere near this many; see `get_passcodes`.
-_MAX_PASSCODE_ENTRIES = 50
+# Only a runaway cursor should ever reach these: TTLock advertises at most
+# 200 fingerprints and 150 passcodes per lock, so both caps sit well above
+# what any firmware can hold - see `get_fingerprints` and `get_passcodes`.
+_MAX_FINGERPRINT_ENTRIES = 300
+_MAX_PASSCODE_ENTRIES = 300
 
 
 class TTLockClient:
