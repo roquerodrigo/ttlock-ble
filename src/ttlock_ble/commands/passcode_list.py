@@ -27,6 +27,7 @@ same reply - that entry is still valid, just the last one to fetch.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from ..constants import KeyboardPwdType
@@ -37,10 +38,12 @@ from .envelope import RESPONSE_SUCCESS, parse_response_status
 if TYPE_CHECKING:
     import datetime as dt
 
+log: logging.Logger = logging.getLogger("ttlock_ble.commands")
+
 _HEADER_LENGTH = 4
 _MINIMUM_ITEM_LENGTH = 4  # item_length + pwd_type + new_pwd_length + pwd_length, no digits
 
-_TRAILER_LENGTH_BY_TYPE = {
+_TRAILER_LENGTH_BY_TYPE: dict[int, int] = {
     KeyboardPwdType.PERMANENT: 5,  # [start_date: 5], always the sentinel in every example seen
     KeyboardPwdType.PERIOD: 10,  # [start_date: 5][end_date: 5]
     KeyboardPwdType.CIRCLE: 7,  # [date sentinel: 3][start_hour][start_minute][?][low_byte]
@@ -119,10 +122,18 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[PasscodeEntry | None
     `next_sequence == 0`, even if it returned alongside a real final
     entry.
 
+    An item whose `pwd_type` is unrecognized, or one with no confirmed
+    trailer layout (`COUNT`), is skipped rather than fatal: it comes back
+    as `entry=None` with the real `next_sequence`, and a warning is
+    logged, so one such passcode cannot hide every other one on the lock.
+    The warning names no byte of the item on purpose; the caller's debug
+    log of the plaintext is where the raw entry can be inspected.
+    Each response carries a single item, so nothing after it depends on
+    knowing that item's trailer.
+
     Raises `RuntimeError` on a FAILED status. Raises `ValueError` if the
     item its own length-prefixed fields describe runs past the end of
-    the payload, has an unrecognized `pwd_type`, or a `pwd_type` with no
-    confirmed trailer layout.
+    the payload.
     """
     _cmd_echo, status, data = parse_response_status(plaintext)
     if status != RESPONSE_SUCCESS:
@@ -134,13 +145,12 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[PasscodeEntry | None
     if len(item) < _MINIMUM_ITEM_LENGTH:
         return None, next_sequence
 
-    raw_pwd_type = item[1]
-    try:
-        pwd_type = KeyboardPwdType(raw_pwd_type)
-    except ValueError as error:
-        raise ValueError(
-            f"passcode list unknown pwd_type={raw_pwd_type}: {plaintext.hex()}"
-        ) from error
+    validity_model = item[1]
+    trailer_length = _TRAILER_LENGTH_BY_TYPE.get(validity_model)
+    if trailer_length is None:
+        log.warning("Skipping a keypad code entry: no confirmed trailer layout for its type")
+        return None, next_sequence
+    pwd_type = KeyboardPwdType(validity_model)
     new_pwd_length = item[2]
     new_pwd = item[3 : 3 + new_pwd_length]
     pwd_length_offset = 3 + new_pwd_length
@@ -149,12 +159,6 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[PasscodeEntry | None
     pwd_length = item[pwd_length_offset]
     # `pwd` itself is skipped: `passcode` exposes `new_pwd`, see `PasscodeEntry`.
     trailer_offset = pwd_length_offset + 1 + pwd_length
-
-    trailer_length = _TRAILER_LENGTH_BY_TYPE.get(pwd_type)
-    if trailer_length is None:
-        raise ValueError(
-            f"passcode list pwd_type={pwd_type.name} has no confirmed layout: {plaintext.hex()}"
-        )
     trailer = item[trailer_offset : trailer_offset + trailer_length]
     if len(trailer) < trailer_length:
         raise ValueError(f"passcode list payload too short for its trailer: {plaintext.hex()}")

@@ -690,19 +690,30 @@ class TestPasscodeList:
         assert entry is None
         assert next_seq == 0
 
-    def test_unknown_pwd_type_raises(self) -> None:
+    def test_unknown_pwd_type_is_skipped_and_keeps_the_cursor(self, caplog) -> None:
         item = _passcode_item(pwd_type=0x09, new_pwd=b"1234", pwd=b"1234", trailer=b"")
-        with pytest.raises(ValueError, match="unknown pwd_type"):
-            cmd.parse_passcode_list_response(_passcode_response(next_sequence=0, item=item))
+        with caplog.at_level("WARNING", logger="ttlock_ble.commands"):
+            entry, next_seq = cmd.parse_passcode_list_response(
+                _passcode_response(next_sequence=7, item=item)
+            )
+        assert entry is None
+        assert next_seq == 7
+        assert "no confirmed trailer layout" in caplog.text
 
-    def test_pwd_type_with_no_confirmed_layout_raises(self) -> None:
+    def test_pwd_type_with_no_confirmed_layout_is_skipped(self, caplog) -> None:
         # KeyboardPwdType.COUNT (2) is a recognized enum member, but no
-        # trailer layout for it has ever been confirmed - must not guess.
+        # trailer layout for it has ever been confirmed - must not guess,
+        # and must not hide the rest of the list behind it either.
         item = _passcode_item(
             pwd_type=int(KeyboardPwdType.COUNT), new_pwd=b"1234", pwd=b"1234", trailer=b""
         )
-        with pytest.raises(ValueError, match="no confirmed layout"):
-            cmd.parse_passcode_list_response(_passcode_response(next_sequence=0, item=item))
+        with caplog.at_level("WARNING", logger="ttlock_ble.commands"):
+            entry, next_seq = cmd.parse_passcode_list_response(
+                _passcode_response(next_sequence=3, item=item)
+            )
+        assert entry is None
+        assert next_seq == 3
+        assert "no confirmed trailer layout" in caplog.text
 
     def test_trailer_too_short_raises(self) -> None:
         item = _passcode_item(

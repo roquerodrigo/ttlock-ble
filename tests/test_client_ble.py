@@ -491,6 +491,35 @@ class TestCommands:
         assert entries[9].passcode == "60920549"
         assert entries[9].is_permanent
 
+    async def test_get_passcodes_skips_an_entry_with_no_confirmed_layout(
+        self, patched_connect
+    ) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        permanent_sentinel = bytes([0x00, 0x01, 0x01, 0x00, 0x00])
+        count_item = _passcode_item(
+            pwd_type=int(KeyboardPwdType.COUNT), new_pwd=b"1111", pwd=b"1111", trailer=b""
+        )
+        permanent_item = _passcode_item(
+            pwd_type=int(KeyboardPwdType.PERMANENT),
+            new_pwd=b"2222",
+            pwd=b"2222",
+            trailer=permanent_sentinel,
+        )
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key, cmd.CMD_GET_PASSCODES, _passcode_list_plain(next_sequence=1, item=count_item)
+            ),
+            _resp_frame(
+                key,
+                cmd.CMD_GET_PASSCODES,
+                _passcode_list_plain(next_sequence=0, item=permanent_item),
+            ),
+        ]
+        entries = await client.get_passcodes()
+        assert [entry.passcode for entry in entries] == ["2222"]
+
     async def test_get_passcodes_empty(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [
