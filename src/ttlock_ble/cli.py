@@ -336,7 +336,9 @@ def get_fingerprints(
     for entry in entries:
         start = "not set" if entry.start_date is None else entry.start_date.isoformat(sep=" ")
         end = "permanent" if entry.end_date is None else entry.end_date.isoformat(sep=" ")
-        typer.echo(f"  slot={entry.slot:<3} fp_id={entry.fp_id.hex()}  start={start}  end={end}")
+        typer.echo(
+            f"  slot={entry.slot:<3} id={entry.fingerprint_id.hex()}  start={start}  end={end}"
+        )
     typer.echo(
         "note: this cannot detect cyclic (day-of-week/time-range) restrictions - "
         "a fingerprint above may still be limited to specific days/hours."

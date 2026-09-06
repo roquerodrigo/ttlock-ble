@@ -577,21 +577,21 @@ class TestCommands:
         # never-touched (sentinel) start, and timed with an edited start.
         permanent_edited_start = _fingerprint_entry_plain(
             position=1,
-            fp_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
             slot=1,
             start=bytes([26, 3, 1, 8, 0]),
             end=cmd.END_DATE_SENTINEL,
         )
         timed_sentinel_start = _fingerprint_entry_plain(
             position=2,
-            fp_id=bytes([0x00, 0x00, 0x00, 0x2B]),
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2B]),
             slot=2,
             start=cmd.START_DATE_SENTINEL,
             end=bytes([26, 12, 31, 23, 59]),
         )
         timed_edited_start = _fingerprint_entry_plain(
             position=3,
-            fp_id=bytes([0x00, 0x00, 0x00, 0x2C]),
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2C]),
             slot=3,
             start=bytes([26, 6, 1, 9, 0]),
             end=bytes([27, 6, 1, 9, 0]),
@@ -610,7 +610,7 @@ class TestCommands:
         assert len(entries) == 3
         first, second, third = entries
 
-        assert first.fp_id == bytes([0x00, 0x00, 0x00, 0x2A])
+        assert first.fingerprint_id == bytes([0x00, 0x00, 0x00, 0x2A])
         assert first.slot == 1
         assert first.start_date == dt.datetime(2026, 3, 1, 8, 0)  # noqa: DTZ001
         assert first.end_date is None
@@ -642,12 +642,8 @@ class TestCommands:
     async def test_get_fingerprints_empty_list_matches_captured_hardware_bytes(
         self, patched_connect
     ) -> None:
-        # Regression test for a real bug: this exact 6-byte plaintext, from
-        # a lock with zero enrolled fingerprints, used to raise "payload
-        # too short" instead of returning [] - the literal 3-byte
-        # end-of-list match this test file's own fixtures were written
-        # against never actually occurs on the wire. See
-        # commands/fingerprint.py's module comment for the decode.
+        # Regression: this exact plaintext, captured from a lock with zero
+        # enrolled fingerprints, used to raise "payload too short".
         client, fake, key = await self._connected(patched_connect)
         captured_plain = bytes.fromhex("06016406ffff")
         fake.reply_for_next = [
@@ -679,7 +675,7 @@ class TestCommands:
         client, fake, key = await self._connected(patched_connect)
         first_entry = _fingerprint_entry_plain(
             position=1,
-            fp_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
             slot=1,
             start=cmd.START_DATE_SENTINEL,
             end=cmd.END_DATE_SENTINEL,
@@ -720,7 +716,7 @@ class TestCommands:
         client, fake, key = await self._connected(patched_connect)
         entry = _fingerprint_entry_plain(
             position=1,
-            fp_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
             slot=1,
             start=cmd.START_DATE_SENTINEL,
             end=cmd.END_DATE_SENTINEL,
@@ -1151,7 +1147,7 @@ def _check_admin_plain() -> bytes:
 
 
 def _fingerprint_entry_plain(
-    *, position: int, fp_id: bytes, slot: int, start: bytes, end: bytes
+    *, position: int, fingerprint_id: bytes, slot: int, start: bytes, end: bytes
 ) -> bytes:
     """Build one CMD 0x06/0x06 SUCCESS response for a non-empty entry.
 
@@ -1161,7 +1157,7 @@ def _fingerprint_entry_plain(
     data = (
         bytes([0x64, 0x06])
         + position.to_bytes(2, "big")
-        + fp_id
+        + fingerprint_id
         + slot.to_bytes(2, "big")
         + start
         + end
@@ -1169,8 +1165,7 @@ def _fingerprint_entry_plain(
     return bytes([cmd.CMD_MANAGE_FINGERPRINT, cmd.RESPONSE_SUCCESS]) + data
 
 
-# Confirmed on real hardware (an empty enrollment): SUCCESS status, data =
-# [battery][op_echo=0x06][0xFF][0xFF] - see commands/fingerprint.py.
+# Real capture from an empty enrollment: SUCCESS, data = [battery][op_echo][0xFF][0xFF].
 _FINGERPRINT_END_OF_LIST = bytes(
     [cmd.CMD_MANAGE_FINGERPRINT, cmd.RESPONSE_SUCCESS, 0x64, cmd.CMD_MANAGE_FINGERPRINT, 0xFF, 0xFF]
 )

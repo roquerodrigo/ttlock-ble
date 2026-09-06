@@ -21,7 +21,7 @@ class FingerprintEntry:
     as confirmation a fingerprint is unrestricted.
     """
 
-    fp_id: bytes
+    fingerprint_id: bytes
     slot: int
     start_date: dt.datetime | None
     end_date: dt.datetime | None

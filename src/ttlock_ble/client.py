@@ -38,9 +38,7 @@ if TYPE_CHECKING:
 
 log: logging.Logger = logging.getLogger("ttlock_ble.client")
 
-# Guards `get_fingerprints` against looping forever if a lock never sends
-# the end-of-list response - no confirmed lock has enrolled anywhere near
-# this many fingerprints.
+# No confirmed lock enrols anywhere near this many; see `get_fingerprints`.
 _MAX_FINGERPRINT_ENTRIES = 50
 
 

@@ -216,13 +216,13 @@ class TestParsers:
 
 
 def _fingerprint_response(
-    *, position: int, fp_id: bytes, slot: int, start: bytes, end: bytes
+    *, position: int, fingerprint_id: bytes, slot: int, start: bytes, end: bytes
 ) -> bytes:
     """Build a full CMD 0x06/0x06 SUCCESS response matching the confirmed wire layout."""
     data = (
         bytes([0x64, 0x06])
         + position.to_bytes(2, "big")
-        + fp_id
+        + fingerprint_id
         + slot.to_bytes(2, "big")
         + start
         + end
@@ -233,10 +233,8 @@ def _fingerprint_response(
 
 class TestFingerprintList:
     def test_end_of_list_returns_none(self) -> None:
-        # Confirmed on real hardware (an empty enrollment): SUCCESS status,
-        # data = [battery][op_echo=0x06][0xFF][0xFF] - not the bare
-        # [0x06][0xFF][0xFF] the original spec described (see
-        # commands/fingerprint.py's module comment for the full story).
+        # Real capture from an empty enrollment: SUCCESS status,
+        # data = [battery][op_echo=0x06][0xFF][0xFF].
         plain = bytes([0x06, cmd.RESPONSE_SUCCESS, 0x64, 0x06, 0xFF, 0xFF])
         assert cmd.parse_fingerprint_list_response(plain) is None
 
@@ -247,14 +245,14 @@ class TestFingerprintList:
     def test_permanent_entry_with_explicit_start(self) -> None:
         plain = _fingerprint_response(
             position=1,
-            fp_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
             slot=3,
             start=bytes([26, 3, 1, 8, 0]),
             end=cmd.END_DATE_SENTINEL,
         )
         entry = cmd.parse_fingerprint_list_response(plain)
         assert entry is not None
-        assert entry.fp_id == bytes([0x00, 0x00, 0x00, 0x2A])
+        assert entry.fingerprint_id == bytes([0x00, 0x00, 0x00, 0x2A])
         assert entry.slot == 3
         assert entry.start_date == dt.datetime(2026, 3, 1, 8, 0)  # noqa: DTZ001
         assert entry.end_date is None
@@ -264,7 +262,7 @@ class TestFingerprintList:
     def test_timed_entry_with_sentinel_start(self) -> None:
         plain = _fingerprint_response(
             position=2,
-            fp_id=bytes([0x00, 0x00, 0x00, 0x2B]),
+            fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2B]),
             slot=4,
             start=cmd.START_DATE_SENTINEL,
             end=bytes([26, 12, 31, 23, 59]),
@@ -276,23 +274,19 @@ class TestFingerprintList:
         assert not entry.is_permanent
         assert not entry.has_explicit_start
 
-    def test_entry_position_does_not_leak_into_fp_id(self) -> None:
-        # Regression test for a real bug: without the leading battery byte
-        # this response layout was later confirmed to carry, `position`
-        # (meant to be discarded) leaked verbatim into fp_id's first byte -
-        # seen on real hardware as fp_id values starting 01, 02, 03... for
-        # entries at position 1, 2, 3. A position of 7 must not appear
-        # anywhere in the decoded fp_id.
+    def test_entry_position_does_not_leak_into_fingerprint_id(self) -> None:
+        # Regression: reading the layout without the leading battery byte
+        # leaked `position` into fingerprint_id's first byte on real hardware.
         plain = _fingerprint_response(
             position=7,
-            fp_id=bytes([0xAA, 0xBB, 0xCC, 0xDD]),
+            fingerprint_id=bytes([0xAA, 0xBB, 0xCC, 0xDD]),
             slot=3,
             start=cmd.START_DATE_SENTINEL,
             end=cmd.END_DATE_SENTINEL,
         )
         entry = cmd.parse_fingerprint_list_response(plain)
         assert entry is not None
-        assert entry.fp_id == bytes([0xAA, 0xBB, 0xCC, 0xDD])
+        assert entry.fingerprint_id == bytes([0xAA, 0xBB, 0xCC, 0xDD])
 
     def test_credential_not_found_raises_clearly(self) -> None:
         plain = bytes([0x06, cmd.RESPONSE_FAILED, 0x1A])
@@ -309,11 +303,11 @@ class TestFingerprintList:
         with pytest.raises(ValueError, match="too short"):
             cmd.parse_fingerprint_list_response(plain)
 
-    def test_sentinel_constants_decode_to_the_sentinel_datetimes(self) -> None:
+    def test_sentinel_constants_decode_to_the_documented_dates(self) -> None:
         from ttlock_ble.commands.encoding import decode_date5
 
-        assert decode_date5(cmd.START_DATE_SENTINEL) == cmd.START_DATE_SENTINEL_DT
-        assert decode_date5(cmd.END_DATE_SENTINEL) == cmd.END_DATE_SENTINEL_DT
+        assert decode_date5(cmd.START_DATE_SENTINEL) == dt.datetime(2000, 1, 1, 0, 0)  # noqa: DTZ001
+        assert decode_date5(cmd.END_DATE_SENTINEL) == dt.datetime(2099, 1, 1, 0, 0)  # noqa: DTZ001
 
 
 def _log_frame_plain(records: list[bytes], sequence: int) -> bytes:

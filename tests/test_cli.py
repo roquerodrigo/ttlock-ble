@@ -416,13 +416,13 @@ class TestBleCommands:
         client.get_fingerprints = AsyncMock(
             return_value=[
                 FingerprintEntry(
-                    fp_id=bytes([0x00, 0x00, 0x00, 0x2A]),
+                    fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2A]),
                     slot=1,
                     start_date=dt.datetime(2026, 3, 1, 8, 0),  # noqa: DTZ001
                     end_date=None,
                 ),
                 FingerprintEntry(
-                    fp_id=bytes([0x00, 0x00, 0x00, 0x2B]),
+                    fingerprint_id=bytes([0x00, 0x00, 0x00, 0x2B]),
                     slot=2,
                     start_date=None,
                     end_date=dt.datetime(2026, 12, 31, 23, 59),  # noqa: DTZ001

@@ -14,38 +14,22 @@ cyclically restricted - see `models.FingerprintEntry`.
 
 from __future__ import annotations
 
-import datetime as dt
-
 from ..models import FingerprintEntry
 from .encoding import decode_date5
 from .envelope import RESPONSE_SUCCESS, parse_response_status
 
-_LIST_SUBOP = 0x06
+_LIST_OPERATION = 0x06
 _ERROR_CREDENTIAL_NOT_FOUND = 0x1A
+_ENTRY_DATA_LENGTH = 20
 
-START_DATE_SENTINEL = bytes(
-    [0x00, 0x01, 0x01, 0x00, 0x00]
-)  # 2000-01-01 00:00, "never explicitly set"
+START_DATE_SENTINEL = bytes([0x00, 0x01, 0x01, 0x00, 0x00])  # 2000-01-01 00:00, "never set"
 END_DATE_SENTINEL = bytes([0x63, 0x01, 0x01, 0x00, 0x00])  # 2099-01-01 00:00, "permanent"
 
-# Decoded equivalents, for comparison when parsing responses - the one place
-# that defines what a sentinel date decodes to, so a lock model that turns
-# out to use a different sentinel only needs updating here.
-START_DATE_SENTINEL_DT = dt.datetime(2000, 1, 1, 0, 0)  # noqa: DTZ001 -- lock RTC is naive
-END_DATE_SENTINEL_DT = dt.datetime(2099, 1, 1, 0, 0)  # noqa: DTZ001 -- lock RTC is naive
-
-# End-of-list is a SUCCESS response, not a special status - confirmed on
-# real hardware (an empty enrollment) as the 6-byte plaintext
-# `06 01 64 06 ff ff`: cmd_echo=0x06, status=0x01 (SUCCESS), then a
-# 4-byte data of [battery=0x64][op_echo=0x06][0xFF][0xFF]. The battery
-# byte's value isn't checked, only its presence and the 3-byte tail.
-# The original spec for this response ("[0x06][0xFF][0xFF]") turned out
-# to be shorthand that dropped the status and battery bytes - a literal
-# 3-byte match against that never fires, so every query (including a
-# genuinely empty list) fell through to "payload too short" instead of
-# returning cleanly. This is what real-device testing caught.
-_END_OF_LIST_DATA_LEN = 4
-_END_OF_LIST_TAIL = bytes([_LIST_SUBOP, 0xFF, 0xFF])
+# End-of-list is a SUCCESS response whose data is [battery][op_echo][0xFF][0xFF]
+# (captured on real hardware as the plaintext `06 01 64 06 ff ff`), not a FAILED
+# status - only the tail after the battery byte is matched.
+_END_OF_LIST_DATA_LENGTH = 4
+_END_OF_LIST_TAIL = bytes([_LIST_OPERATION, 0xFF, 0xFF])
 
 
 def payload_fingerprint_list(index: int) -> bytes:
@@ -54,7 +38,7 @@ def payload_fingerprint_list(index: int) -> bytes:
     `index` starts at 0 and increments by 1 per call - each call returns
     at most one enrolled fingerprint, or the end-of-list response.
     """
-    return bytes([_LIST_SUBOP]) + index.to_bytes(2, "big")
+    return bytes([_LIST_OPERATION]) + index.to_bytes(2, "big")
 
 
 def parse_fingerprint_list_response(plaintext: bytes) -> FingerprintEntry | None:
@@ -67,19 +51,14 @@ def parse_fingerprint_list_response(plaintext: bytes) -> FingerprintEntry | None
     if a SUCCESS response is shorter than the confirmed 20-byte entry
     shape.
 
-    Wire layout of a SUCCESS response's data (20 bytes) - the leading
-    battery byte was confirmed the same way the end-of-list one was:
-    real-device output showed `position` (index + 1, meant to be
-    discarded) leaking verbatim into `fp_id`'s first byte across 7
-    consecutive entries, the unmistakable signature of every field below
-    being read one byte too early:
+    Wire layout of a SUCCESS response's data (20 bytes), confirmed on
+    real hardware - reading it without the leading battery byte shifts
+    every field one position and leaks `position` into `fingerprint_id`:
 
-        [0]     battery percentage - not exposed; see the class this
-                data assembles into, `models.FingerprintEntry`
+        [0]     battery percentage - not exposed on `FingerprintEntry`
         [1]     op_echo (always 0x06)
-        [2:4]   position (index + 1) - discarded; not a total count,
-                confirmed wrong in this role during the investigation
-        [4:8]   fp_id
+        [2:4]   position (index + 1) - discarded; not a total count
+        [4:8]   fingerprint_id
         [8:10]  slot
         [10:15] start_date (5-byte decimal date)
         [15:20] end_date (5-byte decimal date)
@@ -90,16 +69,15 @@ def parse_fingerprint_list_response(plaintext: bytes) -> FingerprintEntry | None
         if code == _ERROR_CREDENTIAL_NOT_FOUND:
             raise RuntimeError(f"credential not found (0x1A): status={status:#x} err={data.hex()}")
         raise RuntimeError(f"fingerprint list FAILED: status={status:#x} err={data.hex()}")
-    if len(data) == _END_OF_LIST_DATA_LEN and data[1:] == _END_OF_LIST_TAIL:
+    if len(data) == _END_OF_LIST_DATA_LENGTH and data[1:] == _END_OF_LIST_TAIL:
         return None
-    if len(data) < 20:
+    if len(data) < _ENTRY_DATA_LENGTH:
         raise ValueError(f"fingerprint list payload too short: {plaintext.hex()}")
-    fp_id = data[4:8]
-    slot = int.from_bytes(data[8:10], "big")
-    start_date = decode_date5(data[10:15])
-    end_date = decode_date5(data[15:20])
-    if start_date == START_DATE_SENTINEL_DT:
-        start_date = None
-    if end_date == END_DATE_SENTINEL_DT:
-        end_date = None
-    return FingerprintEntry(fp_id=fp_id, slot=slot, start_date=start_date, end_date=end_date)
+    start_date_raw = data[10:15]
+    end_date_raw = data[15:20]
+    return FingerprintEntry(
+        fingerprint_id=data[4:8],
+        slot=int.from_bytes(data[8:10], "big"),
+        start_date=None if start_date_raw == START_DATE_SENTINEL else decode_date5(start_date_raw),
+        end_date=None if end_date_raw == END_DATE_SENTINEL else decode_date5(end_date_raw),
+    )

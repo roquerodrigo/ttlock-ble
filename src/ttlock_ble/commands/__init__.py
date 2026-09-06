@@ -30,9 +30,7 @@ from .control import (
 from .envelope import RESPONSE_FAILED, RESPONSE_SUCCESS, parse_response_status
 from .fingerprint import (
     END_DATE_SENTINEL,
-    END_DATE_SENTINEL_DT,
     START_DATE_SENTINEL,
-    START_DATE_SENTINEL_DT,
     parse_fingerprint_list_response,
     payload_fingerprint_list,
 )
@@ -97,12 +95,10 @@ __all__ = [
     "CMD_TIME_CALIBRATE",
     "CMD_UNLOCK",
     "END_DATE_SENTINEL",
-    "END_DATE_SENTINEL_DT",
     "LOCKED",
     "RESPONSE_FAILED",
     "RESPONSE_SUCCESS",
     "START_DATE_SENTINEL",
-    "START_DATE_SENTINEL_DT",
     "UNLOCKED",
     "VENDOR",
     "parse_auto_lock_limits_response",
