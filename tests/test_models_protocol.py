@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ttlock_ble import LockEvent, LockVersion, SiteInfo, VirtualKey
+from ttlock_ble import LockEvent, LockFeature, LockVersion, SiteInfo, VirtualKey
 from ttlock_ble.crypto import crc_compute, hex_key_to_bytes, set_crc_func
 from ttlock_ble.protocol import Frame, FrameReassembler
 from ttlock_ble.protocol.constants import HEADER, TRAILER
@@ -117,6 +117,38 @@ class TestVirtualKey:
         payload["lockFlagPos"] = ""
         key = VirtualKey.from_cloud(payload, uid=0)
         assert key.lockFlagPos == 0
+
+    def test_feature_value_carries_bits_above_the_32_bit_special_value(self) -> None:
+        payload = self._payload()
+        payload["specialValue"] = "1967977975"
+        payload["featureValue"] = format(1 << LockFeature.SOUND_VOLUME_AND_LANGUAGE_SETTING, "x")
+        key = VirtualKey.from_cloud(payload, uid=0)
+        assert key.featureValue == "80000000000"
+        assert key.has_feature(LockFeature.SOUND_VOLUME_AND_LANGUAGE_SETTING)
+        assert not key.has_feature(LockFeature.PASSCODE)
+
+    def test_has_feature_falls_back_to_special_value(self) -> None:
+        payload = self._payload()
+        payload["specialValue"] = str(0x754CF5F7)
+        key = VirtualKey.from_cloud(payload, uid=0)
+        assert key.featureValue == ""
+        assert key.has_feature(LockFeature.PASSCODE)
+        assert key.has_feature(LockFeature.PRIVACY_LOCK)
+        assert not key.has_feature(LockFeature.FREEZE_LOCK)
+        assert not key.has_feature(LockFeature.SOUND_VOLUME_AND_LANGUAGE_SETTING)
+
+    def test_has_feature_ignores_an_unparseable_feature_value(self) -> None:
+        payload = self._payload()
+        payload["specialValue"] = "1"
+        payload["featureValue"] = "not-hex"
+        key = VirtualKey.from_cloud(payload, uid=0)
+        assert key.has_feature(LockFeature.PASSCODE)
+        assert not key.has_feature(LockFeature.IC)
+
+    def test_from_dict_accepts_a_cache_written_before_feature_value(self) -> None:
+        cached = VirtualKey.from_cloud(self._payload(), uid=7).to_dict()
+        del cached["featureValue"]
+        assert VirtualKey.from_dict(cached).featureValue == ""
 
 
 class TestFrameProtocol:

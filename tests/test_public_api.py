@@ -23,6 +23,7 @@ EXPECTED_EXPORTS = frozenset(
         "DeviceProperties",
         "KeyboardPwdType",
         "LockAdvertisement",
+        "LockFeature",
         "LockEvent",
         "LockSound",
         "LockState",

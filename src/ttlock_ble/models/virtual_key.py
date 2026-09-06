@@ -47,6 +47,7 @@ class VirtualKey:
     adminPs: str = ""
     keyboardPwdVersion: int = 0
     specialValue: int = 0
+    featureValue: str = ""
     uid: int = 0
 
     @classmethod
@@ -80,12 +81,37 @@ class VirtualKey:
             adminPs=decode_password(str(admin_field)),
             keyboardPwdVersion=_to_int(payload.get("keyboardPwdVersion", 0)),
             specialValue=_to_int(payload.get("specialValue", 0)),
+            featureValue=str(payload.get("featureValue") or ""),
             uid=uid,
         )
 
     def is_admin(self) -> bool:
         """Return True if this key carries admin privileges on the lock."""
         return self.userType == USER_TYPE_ADMIN
+
+    @property
+    def feature_mask(self) -> int:
+        """The lock's capability bits as one integer - see `LockFeature` for the positions.
+
+        `featureValue` is the cloud's hex string and carries every bit;
+        when a key predates it (or the cloud left it empty) the 32-bit
+        `specialValue` stands in, exactly as the official app falls back
+        to `Integer.toHexString(feature)`. Bits above 31 are then unknown
+        and read as unset.
+        """
+        try:
+            return int(self.featureValue, 16)
+        except ValueError:
+            return self.specialValue & 0xFFFFFFFF
+
+    def has_feature(self, feature: int) -> bool:
+        """Return True if the lock advertises `feature` (a `LockFeature` bit index).
+
+        Mirrors `FeatureValueUtil.isSupportFeature` in the official SDK.
+        An unset bit is not proof the lock lacks the capability when only
+        the truncated `specialValue` is available - see `feature_mask`.
+        """
+        return bool(self.feature_mask >> feature & 1)
 
     def to_dict(self) -> dict[str, object]:
         """Serialise to a plain dict (used by the local key cache)."""

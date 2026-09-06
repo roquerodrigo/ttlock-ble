@@ -214,8 +214,12 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 ### Models & enums
 
 - **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `AutoLockLimits`, `LockSound`, `FingerprintEntry`, `PasscodeEntry`, `CyclicSchedule`
-- **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockVolume`, `LogOperate`, `PwdOperateType`
+- **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockFeature`, `LockVolume`, `LogOperate`, `PwdOperateType`
 - **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP)
+
+`VirtualKey.has_feature(LockFeature.PASSAGE_MODE)` tells whether the lock advertises a
+capability, from the feature value the cloud returns with each eKey — the same bit test the
+official app performs before showing a setting.
 
 ## Home Assistant
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from .auto_lock_operate import AutoLockOperate
 from .keyboard_pwd_type import KeyboardPwdType
+from .lock_feature import LockFeature
 from .lock_state import LockState
 from .lock_volume import LockVolume
 from .log_operate import LogOperate
@@ -20,6 +21,7 @@ from .response_status import ResponseStatus
 __all__ = [
     "AutoLockOperate",
     "KeyboardPwdType",
+    "LockFeature",
     "LockState",
     "LockVolume",
     "LogOperate",

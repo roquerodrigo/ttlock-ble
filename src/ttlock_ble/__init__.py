@@ -20,7 +20,8 @@ Public API:
     CloudError        — raised by `TTLockCloud` on a non-success HTTP response
 
 IntEnums:
-    AutoLockOperate, KeyboardPwdType, LockState, LockVolume, LogOperate, PwdOperateType
+    AutoLockOperate, KeyboardPwdType, LockFeature, LockState, LockVolume, LogOperate,
+    PwdOperateType
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from .cloud import TTLockCloud
 from .constants import (
     AutoLockOperate,
     KeyboardPwdType,
+    LockFeature,
     LockState,
     LockVolume,
     LogOperate,
@@ -63,6 +65,7 @@ __all__ = [
     "KeyboardPwdType",
     "LockAdvertisement",
     "LockEvent",
+    "LockFeature",
     "LockSound",
     "LockState",
     "LockVersion",
