@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from bleak.exc import BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from ..exceptions import TTLockError
@@ -173,17 +174,25 @@ class BleTransport:
             self._waiting_for_response -= 1
 
     async def send(self, frame: Frame) -> None:
-        """Write one frame to the lock, chunked to the ATT payload limit."""
+        """Write one frame to the lock, chunked to the ATT payload limit.
+
+        Raises `TTLockError` when the write fails - typically because the
+        lock dropped the link mid-session - so callers never see a raw
+        `BleakError` from the backend.
+        """
         assert self._client is not None
         assert self._write_char is not None
         wire = frame.build()
         log.debug("TX %s (%d bytes)", wire.hex(), len(wire))
-        for i in range(0, len(wire), BLE_WRITE_CHUNK):
-            await self._client.write_gatt_char(
-                self._write_char,
-                wire[i : i + BLE_WRITE_CHUNK],
-                response=False,
-            )
+        try:
+            for i in range(0, len(wire), BLE_WRITE_CHUNK):
+                await self._client.write_gatt_char(
+                    self._write_char,
+                    wire[i : i + BLE_WRITE_CHUNK],
+                    response=False,
+                )
+        except (BleakError, TimeoutError, OSError) as exc:
+            raise TTLockError(f"Failed to send frame to lock: {exc}") from exc
 
     async def read_optional_char(self, uuid: str) -> str | None:
         """Read a GATT characteristic as UTF-8 text; `None` if absent or unreadable.

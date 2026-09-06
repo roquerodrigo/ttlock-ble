@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from bleak.exc import BleakError
 
 import ttlock_ble.ble.device_finder as device_finder_mod
 import ttlock_ble.ble.transport as transport_mod
@@ -1254,6 +1255,22 @@ class TestDeviceProperties:
         ]
         with pytest.raises(TTLockError, match="Failed to get_device_properties"):
             await client.get_device_properties()
+
+
+class TestSendFailure:
+    async def test_write_failure_is_wrapped_in_ttlock_error(self) -> None:
+        key = make_virtual_key()
+        client = TTLockClient(key)
+        client._transport._client = MagicMock(is_connected=True)
+        client._transport._write_char = "w"
+
+        async def _dropped_link(*_a, **_k) -> None:
+            raise BleakError("E9:EF:A0:BD:22:1D is not connected")
+
+        client._transport._client.write_gatt_char = _dropped_link  # type: ignore[method-assign]
+        frame = Frame.for_lock(key.lockVersion, cmd.CMD_QUERY_STATE, b"")
+        with pytest.raises(TTLockError, match="Failed to send frame to lock"):
+            await client._transport.exchange(frame, timeout=0.01)
 
 
 class TestExchangeTimeout:
