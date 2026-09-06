@@ -16,7 +16,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import make_virtual_key
-from ttlock_ble import AutoLockLimits, DeviceInfo, FingerprintEntry, LockState
+from ttlock_ble import AutoLockLimits, DeviceInfo, DeviceProperties, FingerprintEntry, LockState
 from ttlock_ble._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from ttlock_ble.exceptions import CloudError
 
@@ -321,6 +321,30 @@ class TestBleCommands:
         assert result.exit_code == 0, result.output
         assert "serial number:     ?" in result.output
         assert "software revision: ?" in result.output
+
+    def test_get_device_properties(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_device_properties = AsyncMock(
+            return_value=DeviceProperties(
+                model_variant="SN478_PV53",
+                hardware_revision="1.2",
+                firmware_version="6.4.43.240529",
+                hardware_id="2b6eaae3",
+                mac_address="76:44:55:3D:0D:BC",
+                clock_time=dt.datetime(2026, 8, 29, 23, 47, 52),  # noqa: DTZ001 -- lock RTC is naive
+            )
+        )
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-device-properties", "2", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "SN478_PV53" in result.output
+        assert "1.2" in result.output
+        assert "6.4.43.240529" in result.output
+        assert "2b6eaae3" in result.output
+        assert "76:44:55:3D:0D:BC" in result.output
+        assert "2026-08-29 23:47:52" in result.output
 
     def test_add_passcode(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app

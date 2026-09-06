@@ -1,4 +1,4 @@
-"""Typer-powered `ttlock` CLI: locks, state, sound, passcodes, auto-lock, fingerprints."""
+"""Typer-powered `ttlock` CLI: locks, state, sound, device info, passcodes, fingerprints."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from .client import TTLockClient
 from .cloud import TTLockCloud
 from .constants import LockVolume
 from .exceptions import CloudError
-from .models import AutoLockLimits, DeviceInfo, FingerprintEntry, VirtualKey
+from .models import AutoLockLimits, DeviceInfo, DeviceProperties, FingerprintEntry, VirtualKey
 
 if TYPE_CHECKING:
     from .constants import LockState
@@ -233,6 +233,24 @@ def device_info(
     typer.echo(f"software revision: {info.software_revision or '?'}")
 
 
+@app.command("get-device-properties")
+def get_device_properties(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Read the 6 TTLock-proprietary device properties (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    props = asyncio.run(_run_get_device_properties(key))
+    typer.echo(f"model variant:     {props.model_variant}")
+    typer.echo(f"hardware revision: {props.hardware_revision}")
+    typer.echo(f"firmware version:  {props.firmware_version}")
+    typer.echo(f"hardware id:       {props.hardware_id}")
+    typer.echo(f"MAC address:       {props.mac_address}")
+    typer.echo(f"clock time:        {props.clock_time.isoformat(sep=' ')}")
+
+
 @app.command("add-passcode")
 def add_passcode(
     target: str = typer.Argument(..., help="lockId, alias, or MAC"),
@@ -373,6 +391,11 @@ async def _run_volume(key: VirtualKey, level: int) -> None:
 async def _run_device_info(key: VirtualKey) -> DeviceInfo:
     async with TTLockClient(key) as c:
         return await c.get_device_info()
+
+
+async def _run_get_device_properties(key: VirtualKey) -> DeviceProperties:
+    async with TTLockClient(key) as c:
+        return await c.get_device_properties()
 
 
 async def _run_add_passcode(key: VirtualKey, code: str) -> None:

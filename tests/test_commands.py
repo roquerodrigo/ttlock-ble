@@ -310,6 +310,55 @@ class TestFingerprintList:
         assert decode_date5(cmd.END_DATE_SENTINEL) == dt.datetime(2099, 1, 1, 0, 0)  # noqa: DTZ001
 
 
+class TestDeviceProperties:
+    """Exact plaintexts confirmed on real hardware - used verbatim, not reconstructed."""
+
+    def test_payload_is_a_single_step_byte(self) -> None:
+        assert cmd.payload_device_property(1) == bytes([0x01])
+        assert cmd.payload_device_property(6) == bytes([0x06])
+
+    def test_step1_model_variant(self) -> None:
+        plain = bytes.fromhex("9001534e3437385f5056353300")
+        assert cmd.parse_device_property_string(plain) == "SN478_PV53"
+
+    def test_step2_hardware_revision(self) -> None:
+        plain = bytes.fromhex("9001312e3200")
+        assert cmd.parse_device_property_string(plain) == "1.2"
+
+    def test_step3_firmware_version(self) -> None:
+        plain = bytes.fromhex("9001362e342e34332e32343035323900")
+        assert cmd.parse_device_property_string(plain) == "6.4.43.240529"
+
+    def test_step4_hardware_id(self) -> None:
+        plain = bytes.fromhex("9001326236656161653300")
+        assert cmd.parse_device_property_string(plain) == "2b6eaae3"
+
+    def test_step5_mac_address_is_byte_reversed(self) -> None:
+        plain = bytes.fromhex("9001bc0d3d554476")
+        assert cmd.parse_device_property_mac(plain) == "76:44:55:3D:0D:BC"
+
+    def test_step6_clock_time(self) -> None:
+        plain = bytes.fromhex("90011a081d172f34")
+        assert cmd.parse_device_property_clock(plain) == dt.datetime(  # noqa: DTZ001 -- lock RTC is naive
+            2026, 8, 29, 23, 47, 52
+        )
+
+    def test_step7_unrecognized_raises(self) -> None:
+        plain = bytes([0x90, cmd.RESPONSE_FAILED, 0x19])
+        with pytest.raises(RuntimeError, match="unrecognized device property step"):
+            cmd.parse_device_property_string(plain)
+
+    def test_other_failure_raises(self) -> None:
+        plain = bytes([0x90, cmd.RESPONSE_FAILED, 0xFF])
+        with pytest.raises(RuntimeError, match="FAILED"):
+            cmd.parse_device_property_string(plain)
+
+    def test_clock_invalid_date_raises(self) -> None:
+        plain = bytes([0x90, cmd.RESPONSE_SUCCESS, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+        with pytest.raises(ValueError, match="not a valid date"):
+            cmd.parse_device_property_clock(plain)
+
+
 def _log_frame_plain(records: list[bytes], sequence: int) -> bytes:
     payload = bytearray()
     for r in records:

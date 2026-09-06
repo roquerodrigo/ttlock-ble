@@ -6,8 +6,8 @@ every current DLock-XP / TTLock smart-lock SKU.
 
 One submodule per command family — `session` for the handshake, `control`
 for the bolt, `clock`, `auto_lock`, `passcode`, `operate_log`,
-`lock_sound` and `fingerprint` for the rest — over the shared `opcodes`,
-`envelope` and `encoding` primitives.
+`lock_sound`, `fingerprint` and `device_properties` for the rest — over the
+shared `opcodes`, `envelope` and `encoding` primitives.
 """
 
 from __future__ import annotations
@@ -27,6 +27,12 @@ from .control import (
     payload_query_state,
     payload_unlock,
 )
+from .device_properties import (
+    parse_device_property_clock,
+    parse_device_property_mac,
+    parse_device_property_string,
+    payload_device_property,
+)
 from .envelope import RESPONSE_FAILED, RESPONSE_SUCCESS, parse_response_status
 from .fingerprint import (
     END_DATE_SENTINEL,
@@ -45,6 +51,7 @@ from .opcodes import (
     CMD_CHECK_RANDOM,
     CMD_CHECK_USER_TIME,
     CMD_GET_AES_KEY,
+    CMD_GET_DEVICE_PROPERTIES,
     CMD_GET_LOCK_TIME,
     CMD_GET_OPERATE_LOG,
     CMD_INIT_PASSWORDS,
@@ -81,6 +88,7 @@ __all__ = [
     "CMD_CHECK_RANDOM",
     "CMD_CHECK_USER_TIME",
     "CMD_GET_AES_KEY",
+    "CMD_GET_DEVICE_PROPERTIES",
     "CMD_GET_LOCK_TIME",
     "CMD_GET_OPERATE_LOG",
     "CMD_INIT_PASSWORDS",
@@ -105,6 +113,9 @@ __all__ = [
     "parse_auto_lock_response",
     "parse_check_admin_response",
     "parse_check_user_time_response",
+    "parse_device_property_clock",
+    "parse_device_property_mac",
+    "parse_device_property_string",
     "parse_fingerprint_list_response",
     "parse_get_lock_time_response",
     "parse_lock_status",
@@ -116,6 +127,7 @@ __all__ = [
     "payload_check_admin",
     "payload_check_random",
     "payload_check_user_time",
+    "payload_device_property",
     "payload_fingerprint_list",
     "payload_get_aes_key",
     "payload_get_lock_time",

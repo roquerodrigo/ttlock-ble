@@ -70,3 +70,8 @@ def decode_date6(raw: bytes) -> dt.datetime | None:
 def decode_mac6(raw: bytes) -> str:
     """Decode a 6-byte little-endian MAC into the canonical `aa:bb:cc:dd:ee:ff`."""
     return ":".join(f"{octet:02x}" for octet in reversed(raw))
+
+
+def decode_ascii_z(raw: bytes) -> str:
+    r"""Decode a null-terminated ASCII string, stopping at the first `\x00`."""
+    return raw.split(b"\x00", 1)[0].decode("ascii")

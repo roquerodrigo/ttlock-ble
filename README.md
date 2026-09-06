@@ -141,6 +141,7 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock sound <lock> <on\|off>` | Turn the keypad/lock beep on or off (admin eKey required) |
 | `ttlock volume <lock> <1-5>` | Set the keypad/lock beep volume (admin eKey required; no-op on beeper-only hardware) |
 | `ttlock device-info <lock>` | Show the standard BLE Device Information Service fields |
+| `ttlock get-device-properties <lock>` | Show the 6 TTLock-proprietary device properties (admin eKey required) |
 | `ttlock add-passcode <lock> <code>` | Provision a keypad passcode (admin eKey required) |
 | `ttlock delete-passcode <lock> <code>` | Remove a keypad passcode (admin eKey required) |
 | `ttlock clear-passcodes <lock>` | Wipe ALL keypad passcodes — no undo (admin eKey required) |
@@ -172,6 +173,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `set_lock_volume(level)` | Set the keypad/lock beep volume, 1-5 or `LockVolume` (admin eKey required; no-op on beeper-only hardware) |
 | `get_lock_time()` / `calibrate_time(local_time)` / `sync_time(local_time=…)` | Read / align the lock's clock — the reference is the lock's **local** time, and writing it requires an admin eKey |
 | `get_device_info()` | Standard BLE Device Information Service fields (`DeviceInfo`) — no TTLock handshake needed |
+| `get_device_properties()` | 6 TTLock-proprietary device properties (`DeviceProperties`, admin eKey required) — separate, encrypted mechanism, distinct from `get_device_info()` |
 | `add_event_listener(cb)` / `remove_event_listener(cb)` | Subscribe to `LockEvent` pushes |
 | `is_connected` | Property — `True` while a connection is open |
 
@@ -188,7 +190,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 ### Models & enums
 
-- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `AutoLockLimits`, `FingerprintEntry`
+- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `AutoLockLimits`, `FingerprintEntry`
 - **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockVolume`, `LogOperate`, `PwdOperateType`
 - **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP)
 

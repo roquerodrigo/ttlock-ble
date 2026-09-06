@@ -21,7 +21,14 @@ from .ble.constants import (
 from .constants import KeyboardPwdType, LockState
 from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError
-from .models import AutoLockLimits, DeviceInfo, FingerprintEntry, LockEvent, LogEntry
+from .models import (
+    AutoLockLimits,
+    DeviceInfo,
+    DeviceProperties,
+    FingerprintEntry,
+    LockEvent,
+    LogEntry,
+)
 from .protocol import Frame
 
 if TYPE_CHECKING:
@@ -613,6 +620,72 @@ class TTLockClient:
         log.info("device info: %s", info)
         return info
 
+    async def get_device_properties(self) -> DeviceProperties:
+        """Read the 6 confirmed TTLock-proprietary device properties (CMD 0x90).
+
+        Distinct from `get_device_info`: that one reads the standard,
+        unencrypted Bluetooth SIG Device Information Service and needs no
+        handshake. This is TTLock's own encrypted command protocol,
+        exposing different data entirely - model variant, hardware
+        revision (cross-confirmed against the standard GATT one),
+        firmware version, hardware ID, MAC address and RTC - each read
+        via its own indexed step (1-6) of the same opcode, in one
+        connection and one admin handshake.
+
+        Admin-gated by default, though that is unconfirmed in isolation:
+        this opcode has only ever been observed inside an
+        already-admin-handshaked session. Every other command
+        investigated this session that skipped the handshake failed with
+        the same 0x02 signature (see `_admin_handshake`), so the
+        handshake runs defensively here too; a lock that turns out not to
+        need it just pays for one extra round trip.
+
+        Confirmed on 3 physical locks across 2 hardware families - see
+        `DeviceProperties` for the per-lock findings, including the open
+        question around Laundry's "-NS" model suffix. The step count is
+        fixed at 6, not discovered by probing for an end: step 7 cleanly
+        errors with 0x19 ("unrecognized step") on every lock tested, so
+        this method never sends it.
+        """
+        async with self._command_lock:
+            await self._admin_handshake()
+            try:
+                model_variant = cmd.parse_device_property_string(
+                    await self._device_property_exchange(1)
+                )
+                hardware_revision = cmd.parse_device_property_string(
+                    await self._device_property_exchange(2)
+                )
+                firmware_version = cmd.parse_device_property_string(
+                    await self._device_property_exchange(3)
+                )
+                hardware_id = cmd.parse_device_property_string(
+                    await self._device_property_exchange(4)
+                )
+                mac_address = cmd.parse_device_property_mac(await self._device_property_exchange(5))
+                clock_time = cmd.parse_device_property_clock(
+                    await self._device_property_exchange(6)
+                )
+            except (RuntimeError, ValueError) as error:
+                raise TTLockError(f"Failed to get_device_properties: {error}") from error
+        properties = DeviceProperties(
+            model_variant=model_variant,
+            hardware_revision=hardware_revision,
+            firmware_version=firmware_version,
+            hardware_id=hardware_id,
+            mac_address=mac_address,
+            clock_time=clock_time,
+        )
+        log.info("device properties: %s", properties)
+        return properties
+
+    async def _device_property_exchange(self, step: int) -> bytes:
+        """Send CMD 0x90 for one property step and return the decrypted plaintext."""
+        resp = await self._transport.exchange(
+            self._frame(cmd.CMD_GET_DEVICE_PROPERTIES, cmd.payload_device_property(step))
+        )
+        return self._decrypt_response(resp, "get_device_properties")
+
     def _frame(self, command: int, payload: bytes) -> Frame:
         """Build and encrypt one command frame for this lock's protocol version."""
         return Frame.for_lock(self.key.lockVersion, command, payload).encrypt_data(self._aes_key)
@@ -726,6 +799,11 @@ class TTLockClient:
         rather than found as a later fix. Not every read needs it,
         though: `get_lock_time` answers without any handshake, while
         `get_fingerprints` - also a read - does not get that exemption.
+
+        `get_device_properties` runs it too, but defensively rather than
+        on confirmed evidence: that opcode has only ever been observed
+        inside an already-admin-handshaked session, never tested in
+        isolation - see its own docstring.
 
         Checks the admin password before touching the BLE link: it is
         `""` on a key that never carried one, and `payload_check_admin`

@@ -5,6 +5,7 @@ from __future__ import annotations
 from .auto_lock_limits import AutoLockLimits
 from .cloud_credentials import CloudCredentials
 from .device_info import DeviceInfo
+from .device_properties import DeviceProperties
 from .fingerprint_entry import FingerprintEntry
 from .lock_advertisement import LockAdvertisement
 from .lock_event import LockEvent
@@ -17,6 +18,7 @@ __all__ = [
     "AutoLockLimits",
     "CloudCredentials",
     "DeviceInfo",
+    "DeviceProperties",
     "FingerprintEntry",
     "LockAdvertisement",
     "LockEvent",

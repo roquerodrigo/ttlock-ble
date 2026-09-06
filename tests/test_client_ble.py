@@ -936,6 +936,84 @@ class TestDeviceInfo:
         assert info.model is None
 
 
+class TestDeviceProperties:
+    """`get_device_properties` reads TTLock's own encrypted CMD 0x90, steps 1-6.
+
+    Uses the exact plaintexts confirmed on real hardware, verbatim.
+    """
+
+    async def _connected(self, patched_connect):
+        key = make_virtual_key()
+        client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=0)
+        fake = FakeBleakClient(key)
+        patched_connect(fake)
+        await client.connect()
+        return client, fake, key
+
+    async def test_get_device_properties(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_GET_DEVICE_PROPERTIES,
+                bytes.fromhex("9001534e3437385f5056353300"),
+            ),
+            _resp_frame(key, cmd.CMD_GET_DEVICE_PROPERTIES, bytes.fromhex("9001312e3200")),
+            _resp_frame(
+                key,
+                cmd.CMD_GET_DEVICE_PROPERTIES,
+                bytes.fromhex("9001362e342e34332e32343035323900"),
+            ),
+            _resp_frame(
+                key, cmd.CMD_GET_DEVICE_PROPERTIES, bytes.fromhex("9001326236656161653300")
+            ),
+            _resp_frame(key, cmd.CMD_GET_DEVICE_PROPERTIES, bytes.fromhex("9001bc0d3d554476")),
+            _resp_frame(key, cmd.CMD_GET_DEVICE_PROPERTIES, bytes.fromhex("90011a081d172f34")),
+        ]
+
+        props = await client.get_device_properties()
+
+        assert props.model_variant == "SN478_PV53"
+        assert props.hardware_revision == "1.2"
+        assert props.firmware_version == "6.4.43.240529"
+        assert props.hardware_id == "2b6eaae3"
+        assert props.mac_address == "76:44:55:3D:0D:BC"
+        assert props.clock_time == dt.datetime(2026, 8, 29, 23, 47, 52)  # noqa: DTZ001 -- lock RTC is naive
+
+    async def test_admin_check_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.get_device_properties()
+
+    async def test_rejected_mid_scan_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_GET_DEVICE_PROPERTIES,
+                bytes.fromhex("9001534e3437385f5056353300"),
+            ),
+            _resp_frame(
+                key,
+                cmd.CMD_GET_DEVICE_PROPERTIES,
+                bytes([cmd.CMD_GET_DEVICE_PROPERTIES, cmd.RESPONSE_FAILED, 0xFF]),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to get_device_properties"):
+            await client.get_device_properties()
+
+
 class TestExchangeTimeout:
     async def test_recv_timeout_wrapped(self) -> None:
         key = make_virtual_key()
