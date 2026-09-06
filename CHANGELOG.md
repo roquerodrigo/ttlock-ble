@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.3.2](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.1...v0.3.2) (2026-09-06)
+
+
+### Features
+
+* **client:** add get_device_features() ([b9b4e0a](https://github.com/roquerodrigo/ttlock-ble/commit/b9b4e0ae7b910c41ac455f2120ac93d6034faf4a))
+* **client:** add get_device_properties() ([525d663](https://github.com/roquerodrigo/ttlock-ble/commit/525d663843ed9ba507b9ca7edfc1df573eca61ff))
+* **client:** add get_fingerprints() ([edd052b](https://github.com/roquerodrigo/ttlock-ble/commit/edd052b7826f7080496be89717071cab03bb9cfc))
+* **client:** add get_lock_sound() ([7ca3fcc](https://github.com/roquerodrigo/ttlock-ble/commit/7ca3fcc2955a4ce5d0c5ce8c3f585c32140eba1b))
+* **client:** add get_passcodes() ([b315a38](https://github.com/roquerodrigo/ttlock-ble/commit/b315a38c2c69cc569ee3def2c934fa5a6c4a7385))
+* **constants:** add the LogOperate record types missing from the SDK mirror ([1221ebf](https://github.com/roquerodrigo/ttlock-ble/commit/1221ebfbcc79216e56b2438d7a4bf89a88f4967e))
+* **models:** keep the cloud featureValue on VirtualKey ([766b730](https://github.com/roquerodrigo/ttlock-ble/commit/766b730c4e9492e97bdb052d74a6d84bac271b7c))
+
+
+### Bug Fixes
+
+* **ble:** wrap BLE write failures in TTLockError ([5bdc85a](https://github.com/roquerodrigo/ttlock-ble/commit/5bdc85aa079723407799faaf43234db6674bae71))
+* **client:** raise the fingerprint and passcode listing caps above lock capacity ([6a185de](https://github.com/roquerodrigo/ttlock-ble/commit/6a185de1c9c35bd2aa67db9eb5493cc253f08698))
+* **commands:** skip passcode entries without a confirmed layout ([790b5b4](https://github.com/roquerodrigo/ttlock-ble/commit/790b5b41b25cb390730822035d4bf8d74445c2a5))
+
+
+### Code Refactoring
+
+* align get_device_properties with the code style guide ([2da24e8](https://github.com/roquerodrigo/ttlock-ble/commit/2da24e8ffaee9aa7cb2d0acf7c3b8ca5c4006d66))
+* align get_fingerprints with the code style guide ([1087b78](https://github.com/roquerodrigo/ttlock-ble/commit/1087b783e33f3c7342360f6e8056b691953e14fd))
+* align get_passcodes with the code style guide ([b222001](https://github.com/roquerodrigo/ttlock-ble/commit/b222001c6378a3f8d3f4cf157068090100f0183e))
+* **client:** rename DeviceProperties.hardware_id to manufacture_date ([790759d](https://github.com/roquerodrigo/ttlock-ble/commit/790759d5b631c47aa252d812017d5118cd5b9e4b))
+* list protocol identifiers in ascending numeric order ([35383cd](https://github.com/roquerodrigo/ttlock-ble/commit/35383cd5dd6abb01aecddc78cbab27c60d27d517))
+
+
+### Dependencies
+
+* bump ruff to 0.16.6 and refresh the lockfile ([8505cea](https://github.com/roquerodrigo/ttlock-ble/commit/8505ceabf44c630c90c30aeb4f70879f746da1d7))
+* **deps:** bump the python-deps group with 3 updates ([018a447](https://github.com/roquerodrigo/ttlock-ble/commit/018a447103bf06941a41a7cc5da5ef4a388692cd))
+
+
+### Documentation
+
+* add GitHub Sponsors button and support section ([a08024d](https://github.com/roquerodrigo/ttlock-ble/commit/a08024d9ed788ac9ba3359c040824086afd7cf77))
+* document the access level every command needs ([e12bdc5](https://github.com/roquerodrigo/ttlock-ble/commit/e12bdc5a53a6cd1d25f850e2dba155524eac4751))
+
 ## [0.3.1](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.0...v0.3.1) (2026-08-30)
 
 
