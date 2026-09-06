@@ -9,7 +9,7 @@ import pytest
 
 from ttlock_ble import commands as cmd
 from ttlock_ble.commands import log_record
-from ttlock_ble.constants import KeyboardPwdType, LockState, LockVolume, LogOperate
+from ttlock_ble.constants import KeyboardPwdType, LockFeature, LockState, LockVolume, LogOperate
 from ttlock_ble.models import CyclicSchedule
 
 if TYPE_CHECKING:
@@ -344,6 +344,62 @@ class TestFingerprintList:
 
         assert decode_date5(cmd.START_DATE_SENTINEL) == dt.datetime(2000, 1, 1, 0, 0)  # noqa: DTZ001
         assert decode_date5(cmd.END_DATE_SENTINEL) == dt.datetime(2099, 1, 1, 0, 0)  # noqa: DTZ001
+
+
+class TestDeviceFeature:
+    """Layout from the SDK's parser: [battery][word0 BE][word1 BE]…, low word first."""
+
+    def test_payload_is_empty(self) -> None:
+        assert cmd.payload_search_device_feature() == b""
+
+    def test_two_words_stitch_low_word_first(self) -> None:
+        plain = (
+            bytes([0x01, cmd.RESPONSE_SUCCESS, 0x5A])
+            + bytes.fromhex("754cf5f7")
+            + bytes.fromhex("00000804")
+        )
+        features = cmd.parse_device_feature_response(plain)
+        assert features.battery == 0x5A
+        assert features.mask == 0x00000804754CF5F7
+        assert features.feature_value == "804754CF5F7"
+        assert features.supports(LockFeature.PASSCODE)
+        assert features.supports(LockFeature.PRIVACY_LOCK)
+        assert features.supports(LockFeature.CYCLIC_IC_OR_FINGER_PRINT)
+        assert features.supports(LockFeature.SOUND_VOLUME_AND_LANGUAGE_SETTING)
+        assert not features.supports(LockFeature.FREEZE_LOCK)
+
+    def test_single_word(self) -> None:
+        plain = bytes([0x01, cmd.RESPONSE_SUCCESS, 0x64]) + bytes.fromhex("00000011")
+        features = cmd.parse_device_feature_response(plain)
+        assert features.mask == 0x11
+        assert features.known == (LockFeature.PASSCODE, LockFeature.AUTO_LOCK)
+        assert features.unnamed_bits == ()
+
+    def test_partial_trailing_word_is_dropped(self) -> None:
+        plain = (
+            bytes([0x01, cmd.RESPONSE_SUCCESS, 0x64])
+            + bytes.fromhex("00000001")
+            + bytes([0xFF, 0xFF])
+        )
+        assert cmd.parse_device_feature_response(plain).mask == 1
+
+    def test_unnamed_bits_are_reported(self) -> None:
+        plain = bytes([0x01, cmd.RESPONSE_SUCCESS, 0x64]) + bytes.fromhex("04000000")
+        features = cmd.parse_device_feature_response(plain)
+        assert features.known == ()
+        assert features.unnamed_bits == (26,)
+
+    def test_empty_mask_renders_as_zero(self) -> None:
+        plain = bytes([0x01, cmd.RESPONSE_SUCCESS, 0x64]) + bytes(4)
+        assert cmd.parse_device_feature_response(plain).feature_value == "0"
+
+    def test_failure_raises(self) -> None:
+        with pytest.raises(RuntimeError, match="FAILED"):
+            cmd.parse_device_feature_response(bytes([0x01, cmd.RESPONSE_FAILED, 0x02]))
+
+    def test_short_payload_raises(self) -> None:
+        with pytest.raises(ValueError, match="too short"):
+            cmd.parse_device_feature_response(bytes([0x01, cmd.RESPONSE_SUCCESS, 0x64, 0x01, 0x02]))
 
 
 class TestDeviceProperties:

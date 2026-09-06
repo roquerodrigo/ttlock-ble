@@ -35,7 +35,7 @@ from ttlock_ble.ble.constants import (
     TTL_SERVICE,
     TTL_WRITE,
 )
-from ttlock_ble.constants import KeyboardPwdType
+from ttlock_ble.constants import KeyboardPwdType, LockFeature
 from ttlock_ble.crypto import aes_encrypt, hex_key_to_bytes
 from ttlock_ble.exceptions import TTLockError
 from ttlock_ble.protocol import Frame
@@ -1120,6 +1120,62 @@ class TestDeviceInfo:
         info = await client.get_device_info()
 
         assert info.model is None
+
+
+class TestDeviceFeatures:
+    async def _connected(self, patched_connect):
+        key = make_virtual_key()
+        client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=0)
+        fake = FakeBleakClient(key)
+        patched_connect(fake)
+        await client.connect()
+        return client, fake, key
+
+    async def test_get_device_features(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_SEARCH_DEVICE_FEATURE,
+                _status_plain(cmd.CMD_SEARCH_DEVICE_FEATURE)
+                + bytes([0x5A])
+                + bytes.fromhex("754cf5f7")
+                + bytes.fromhex("00000804"),
+            ),
+        ]
+        features = await client.get_device_features()
+        assert features.battery == 0x5A
+        assert features.supports(LockFeature.PASSAGE_MODE)
+        assert features.supports(LockFeature.SOUND_VOLUME_AND_LANGUAGE_SETTING)
+        assert not features.supports(LockFeature.LAMP)
+
+    async def test_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_SEARCH_DEVICE_FEATURE,
+                _status_plain(cmd.CMD_SEARCH_DEVICE_FEATURE, cmd.RESPONSE_FAILED) + b"\x02",
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to get_device_features"):
+            await client.get_device_features()
+
+    async def test_admin_check_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.get_device_features()
 
 
 class TestDeviceProperties:

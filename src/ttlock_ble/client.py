@@ -23,6 +23,7 @@ from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError
 from .models import (
     AutoLockLimits,
+    DeviceFeatures,
     DeviceInfo,
     DeviceProperties,
     FingerprintEntry,
@@ -674,6 +675,34 @@ class TTLockClient:
             plain = self._decrypt_response(resp, "set_lock_volume")
             self._require_success(plain, "set_lock_volume")
         log.info("lock volume set to %d", level)
+
+    async def get_device_features(self) -> DeviceFeatures:
+        """Read the capability bits the lock itself advertises (CMD 0x01).
+
+        The same feature value the cloud hands out with each eKey
+        (`VirtualKey.featureValue`), straight from the firmware and with
+        every bit - the cloud's 32-bit `specialValue` truncates anything
+        above bit 31. Test it with `DeviceFeatures.supports(LockFeature.X)`
+        before offering a setting, the way the official app does.
+
+        Admin-gated because the official SDK's `searchDeviceFeature` runs
+        CHECK_ADMIN before it; whether the firmware insists on that for a
+        read is unconfirmed. The response layout follows the SDK's parser
+        rather than a hardware capture - see `commands.device_feature`.
+        """
+        async with self._command_lock:
+            await self._admin_handshake()
+            resp = await self._transport.exchange(
+                self._frame(cmd.CMD_SEARCH_DEVICE_FEATURE, cmd.payload_search_device_feature())
+            )
+            plain = self._decrypt_response(resp, "get_device_features")
+            log.debug("device feature response plaintext: %s", plain.hex())
+            try:
+                features = cmd.parse_device_feature_response(plain)
+            except (RuntimeError, ValueError) as error:
+                raise TTLockError(f"Failed to get_device_features: {error}") from error
+        log.info("device features: %s (battery %d%%)", features.feature_value, features.battery)
+        return features
 
     async def get_device_info(self) -> DeviceInfo:
         """Read the standard BLE Device Information Service (0x180A), if the lock exposes it.

@@ -19,6 +19,7 @@ from tests.conftest import make_virtual_key
 from ttlock_ble import (
     AutoLockLimits,
     CyclicSchedule,
+    DeviceFeatures,
     DeviceInfo,
     DeviceProperties,
     FingerprintEntry,
@@ -356,6 +357,35 @@ class TestBleCommands:
         assert result.exit_code == 0, result.output
         assert "serial number:     ?" in result.output
         assert "software revision: ?" in result.output
+
+    def test_features(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_device_features = AsyncMock(
+            return_value=DeviceFeatures(mask=(1 << 0) | (1 << 22) | (1 << 26), battery=77)
+        )
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["features", "2", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "feature value: 4400001  battery: 77%" in result.output
+        assert "  0  PASSCODE" in result.output
+        assert " 22  PASSAGE_MODE" in result.output
+        assert " 26  (no name in the SDK mirror)" in result.output
+        assert "note:" not in result.output
+
+    def test_features_flags_a_stale_cached_feature_value(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        cached = make_virtual_key().to_dict()
+        cached["featureValue"] = "1"
+        store.parent.mkdir(parents=True, exist_ok=True)
+        store.write_text(json.dumps([cached]))
+        client = MagicMock()
+        client.get_device_features = AsyncMock(return_value=DeviceFeatures(mask=0x11, battery=50))
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["features", "2"])
+        assert result.exit_code == 0, result.output
+        assert "note: the cached eKey carries a different feature value (1)" in result.output
 
     def test_get_device_properties(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app

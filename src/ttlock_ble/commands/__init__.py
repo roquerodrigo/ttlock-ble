@@ -6,8 +6,9 @@ every current DLock-XP / TTLock smart-lock SKU.
 
 One submodule per command family — `session` for the handshake, `control`
 for the bolt, `clock`, `auto_lock`, `passcode`, `passcode_list`,
-`operate_log`, `lock_sound`, `fingerprint` and `device_properties` for the
-rest — over the shared `opcodes`, `envelope` and `encoding` primitives.
+`operate_log`, `lock_sound`, `fingerprint`, `device_feature` and
+`device_properties` for the rest — over the shared `opcodes`, `envelope` and
+`encoding` primitives.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from .control import (
     payload_query_state,
     payload_unlock,
 )
+from .device_feature import parse_device_feature_response, payload_search_device_feature
 from .device_properties import (
     parse_device_property_clock,
     parse_device_property_mac,
@@ -121,6 +123,7 @@ __all__ = [
     "parse_auto_lock_response",
     "parse_check_admin_response",
     "parse_check_user_time_response",
+    "parse_device_feature_response",
     "parse_device_property_clock",
     "parse_device_property_mac",
     "parse_device_property_string",
@@ -148,6 +151,7 @@ __all__ = [
     "payload_passcode_delete",
     "payload_passcode_list",
     "payload_query_state",
+    "payload_search_device_feature",
     "payload_set_lock_sound",
     "payload_set_lock_volume",
     "payload_time_calibrate",

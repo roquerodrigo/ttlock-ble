@@ -10,6 +10,7 @@ Public API:
     LockEvent         — push notification surfaced by the BLE client
     LockSound         — beep on/off and volume as read back from the lock
     LogEntry          — one row from the lock's on-device operation log
+    DeviceFeatures    — the capability bits the lock itself reports (see LockFeature)
     DeviceInfo        — standard BLE Device Information Service (0x180A) fields
     DeviceProperties  — 6 confirmed TTLock-proprietary device properties
     AutoLockLimits    — the lock's own min/max allowed auto-lock delay
@@ -41,6 +42,7 @@ from .exceptions import CloudError, TTLockError
 from .models import (
     AutoLockLimits,
     CyclicSchedule,
+    DeviceFeatures,
     DeviceInfo,
     DeviceProperties,
     FingerprintEntry,
@@ -59,6 +61,7 @@ __all__ = [
     "AutoLockOperate",
     "CloudError",
     "CyclicSchedule",
+    "DeviceFeatures",
     "DeviceInfo",
     "DeviceProperties",
     "FingerprintEntry",

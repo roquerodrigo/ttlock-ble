@@ -20,6 +20,7 @@ from .constants import KeyboardPwdType, LockVolume
 from .exceptions import CloudError
 from .models import (
     AutoLockLimits,
+    DeviceFeatures,
     DeviceInfo,
     DeviceProperties,
     FingerprintEntry,
@@ -247,6 +248,27 @@ def get_sound(
     typer.echo(f"sound: {'on' if sound.enabled else 'off'}  volume: {volume}")
 
 
+@app.command("features")
+def features(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """List the capabilities the lock itself advertises (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    device_features = asyncio.run(_run_features(key))
+    typer.echo(
+        f"feature value: {device_features.feature_value}  battery: {device_features.battery}%"
+    )
+    for feature in device_features.known:
+        typer.echo(f"  {int(feature):>3}  {feature.name}")
+    for bit in device_features.unnamed_bits:
+        typer.echo(f"  {bit:>3}  (no name in the SDK mirror)")
+    if key.featureValue and key.feature_mask != device_features.mask:
+        typer.echo(f"note: the cached eKey carries a different feature value ({key.featureValue})")
+
+
 @app.command("device-info")
 def device_info(
     target: str = typer.Argument(..., help="lockId, alias, or MAC"),
@@ -468,6 +490,11 @@ async def _run_get_sound(key: VirtualKey) -> LockSound:
 async def _run_device_info(key: VirtualKey) -> DeviceInfo:
     async with TTLockClient(key) as c:
         return await c.get_device_info()
+
+
+async def _run_features(key: VirtualKey) -> DeviceFeatures:
+    async with TTLockClient(key) as c:
+        return await c.get_device_features()
 
 
 async def _run_get_device_properties(key: VirtualKey) -> DeviceProperties:
