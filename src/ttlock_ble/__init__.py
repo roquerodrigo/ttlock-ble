@@ -8,6 +8,7 @@ Public API:
     SiteInfo          — regional API endpoints (siteId, country, base URL)
     LockAdvertisement — bolt state + battery decoded from a BLE advertisement
     LockEvent         — push notification surfaced by the BLE client
+    LockSound         — beep on/off and volume as read back from the lock
     LogEntry          — one row from the lock's on-device operation log
     DeviceInfo        — standard BLE Device Information Service (0x180A) fields
     DeviceProperties  — 6 confirmed TTLock-proprietary device properties
@@ -43,6 +44,7 @@ from .models import (
     FingerprintEntry,
     LockAdvertisement,
     LockEvent,
+    LockSound,
     LockVersion,
     LogEntry,
     PasscodeEntry,
@@ -61,6 +63,7 @@ __all__ = [
     "KeyboardPwdType",
     "LockAdvertisement",
     "LockEvent",
+    "LockSound",
     "LockState",
     "LockVersion",
     "LockVolume",

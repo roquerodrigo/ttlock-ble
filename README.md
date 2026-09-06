@@ -154,6 +154,7 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock battery <lock>` | User eKey | Show battery percentage |
 | `ttlock sound <lock> <on\|off>` | Admin eKey | Turn the keypad/lock beep on or off |
 | `ttlock volume <lock> <1-5>` | Admin eKey | Set the keypad/lock beep volume (no-op on beeper-only hardware) |
+| `ttlock get-sound <lock>` | Admin eKey | Read whether the beep is on and, when the lock reports it, its volume |
 | `ttlock device-info <lock>` | None | Show the standard BLE Device Information Service fields — a plain GATT read; the cached eKey only resolves the address |
 | `ttlock get-device-properties <lock>` | Admin eKey | Show the 6 TTLock-proprietary device properties |
 | `ttlock add-passcode <lock> <code>` | Admin eKey | Provision a keypad passcode |
@@ -191,6 +192,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Admin eKey | Manage keypad passcodes |
 | `get_passcodes()` | Admin eKey | Keypad passcodes the lock reports (`list[PasscodeEntry]`) — **not exhaustive**: a passcode never added through this library, and never yet used at the keypad, won't appear |
 | `get_fingerprints()` | Admin eKey | Enrolled fingerprints (`list[FingerprintEntry]`) — blind to cyclic (day-of-week / time-range) restrictions |
+| `get_lock_sound()` | Admin eKey | Beep on/off and volume as the lock reports them (`LockSound`; `volume` is `None` on beeper-only hardware) |
 | `set_lock_sound(enabled)` | Admin eKey | Turn the keypad/lock beep on or off |
 | `set_lock_volume(level)` | Admin eKey | Set the keypad/lock beep volume, 1-5 or `LockVolume` (no-op on beeper-only hardware) |
 | `get_device_info()` | None | Standard BLE Device Information Service fields (`DeviceInfo`) — plain GATT, no TTLock handshake |
@@ -211,7 +213,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 ### Models & enums
 
-- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `AutoLockLimits`, `FingerprintEntry`, `PasscodeEntry`, `CyclicSchedule`
+- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `AutoLockLimits`, `LockSound`, `FingerprintEntry`, `PasscodeEntry`, `CyclicSchedule`
 - **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockVolume`, `LogOperate`, `PwdOperateType`
 - **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP)
 

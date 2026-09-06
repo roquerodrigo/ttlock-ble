@@ -23,6 +23,7 @@ from .models import (
     DeviceInfo,
     DeviceProperties,
     FingerprintEntry,
+    LockSound,
     PasscodeEntry,
     VirtualKey,
 )
@@ -228,6 +229,22 @@ def volume(
     key = _resolve_key(target)
     asyncio.run(_run_volume(key, level))
     typer.echo(f"✓ volume set to {level}")
+
+
+@app.command("get-sound")
+def get_sound(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Read whether the keypad/lock beep is on and its volume (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    sound = asyncio.run(_run_get_sound(key))
+    volume = (
+        "not reported" if sound.volume is None else f"{int(sound.volume)} ({sound.volume.name})"
+    )
+    typer.echo(f"sound: {'on' if sound.enabled else 'off'}  volume: {volume}")
 
 
 @app.command("device-info")
@@ -441,6 +458,11 @@ async def _run_sound(key: VirtualKey, *, enabled: bool) -> None:
 async def _run_volume(key: VirtualKey, level: int) -> None:
     async with TTLockClient(key) as c:
         await c.set_lock_volume(level)
+
+
+async def _run_get_sound(key: VirtualKey) -> LockSound:
+    async with TTLockClient(key) as c:
+        return await c.get_lock_sound()
 
 
 async def _run_device_info(key: VirtualKey) -> DeviceInfo:

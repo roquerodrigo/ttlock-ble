@@ -27,6 +27,7 @@ from .models import (
     DeviceProperties,
     FingerprintEntry,
     LockEvent,
+    LockSound,
     LogEntry,
     PasscodeEntry,
 )
@@ -598,6 +599,33 @@ class TTLockClient:
         log.info("fetched %d fingerprint(s)", len(entries))
         return entries
 
+    async def get_lock_sound(self) -> LockSound:
+        """Read whether the keypad/lock beep is on and, when reported, its volume.
+
+        The SEARCH form of the same opcode `set_lock_sound` writes with;
+        the official SDK's `audioManage` issues it and its response
+        parser gives the layout (see `commands.lock_sound`). Unlike the
+        write forms, this read has not been exercised against physical
+        hardware yet - the decoding follows the SDK, not a capture.
+
+        Admin-gated like the write - see `set_lock_sound`. A lock without
+        a volume setting answers without the volume byte, so
+        `LockSound.volume` is `None` there.
+        """
+        async with self._command_lock:
+            await self._admin_handshake()
+            resp = await self._transport.exchange(
+                self._frame(cmd.CMD_SET_LOCK_SOUND, cmd.payload_get_lock_sound())
+            )
+            plain = self._decrypt_response(resp, "get_lock_sound")
+            log.debug("lock sound response plaintext: %s", plain.hex())
+            try:
+                sound = cmd.parse_lock_sound_response(plain)
+            except (RuntimeError, ValueError) as error:
+                raise TTLockError(f"Failed to get_lock_sound: {error}") from error
+        log.info("lock sound: %s, volume=%s", "on" if sound.enabled else "off", sound.volume)
+        return sound
+
     async def set_lock_sound(self, *, enabled: bool) -> None:
         """Turn the keypad/lock beep on or off.
 
@@ -605,13 +633,10 @@ class TTLockClient:
         CHECK_ADMIN fails the same way a missing handshake would (see
         `_admin_handshake`).
 
-        There is no corresponding read/status command - neither
-        `query_state()` nor the BLE advertisement payload carries the
-        sound setting, and no query opcode for it has been found. A
-        raise-free return only means the lock accepted the frame; it is
-        not a live readback. Callers that need to display the current
-        setting must track the value they last set optimistically (e.g.
-        cache it themselves) rather than ask the lock.
+        A raise-free return means the lock accepted the frame; read the
+        setting back with `get_lock_sound` when a confirmed value is
+        needed - neither `query_state()` nor the BLE advertisement
+        payload carries it.
         """
         async with self._command_lock:
             await self._admin_handshake()
@@ -638,9 +663,9 @@ class TTLockClient:
         so this is safe to call unconditionally without checking the
         lock's capabilities first.
 
-        Write-only, same limitation as `set_lock_sound` - there is no
-        query opcode for the current volume, so a raise-free return only
-        means the lock accepted the frame, not a live readback.
+        A raise-free return means the lock accepted the frame; read the
+        level back with `get_lock_sound`, which reports `volume=None` on
+        hardware that has no volume setting.
         """
         payload = cmd.payload_set_lock_volume(level)
         async with self._command_lock:

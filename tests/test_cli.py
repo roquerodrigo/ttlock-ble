@@ -22,7 +22,9 @@ from ttlock_ble import (
     DeviceInfo,
     DeviceProperties,
     FingerprintEntry,
+    LockSound,
     LockState,
+    LockVolume,
     PasscodeEntry,
 )
 from ttlock_ble._cloud_helpers import ERR_NEW_DEVICE_LOGIN
@@ -275,6 +277,30 @@ class TestBleCommands:
         result = runner.invoke(cli_module.app, ["sound", "2", "loud"])
         assert result.exit_code != 0
         client.set_lock_sound.assert_not_awaited()
+
+    def test_get_sound(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_lock_sound = AsyncMock(
+            return_value=LockSound(enabled=True, volume=LockVolume.MEDIUM_HIGH)
+        )
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-sound", "2", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "sound: on" in result.output
+        assert "volume: 4 (MEDIUM_HIGH)" in result.output
+
+    def test_get_sound_without_volume(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_lock_sound = AsyncMock(return_value=LockSound(enabled=False, volume=None))
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-sound", "2"])
+        assert result.exit_code == 0, result.output
+        assert "sound: off" in result.output
+        assert "volume: not reported" in result.output
 
     def test_volume(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app

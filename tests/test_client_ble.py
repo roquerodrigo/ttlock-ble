@@ -859,6 +859,63 @@ class TestCommands:
         with pytest.raises(TTLockError, match="exceeded safety cap"):
             await client.get_fingerprints()
 
+    async def test_get_lock_sound_with_volume(self, patched_connect) -> None:
+        # Layout from the SDK's audioManage parser: [battery][op=1][sound][volume].
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_SET_LOCK_SOUND,
+                _status_plain(cmd.CMD_SET_LOCK_SOUND) + bytes([0x5A, 0x01, 0x01, 0x03]),
+            ),
+        ]
+        sound = await client.get_lock_sound()
+        assert sound.enabled
+        assert sound.volume is LockVolume.MEDIUM
+
+    async def test_get_lock_sound_off_without_volume(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_SET_LOCK_SOUND,
+                _status_plain(cmd.CMD_SET_LOCK_SOUND) + bytes([0x5A, 0x01, 0x00]),
+            ),
+        ]
+        sound = await client.get_lock_sound()
+        assert not sound.enabled
+        assert sound.volume is None
+
+    async def test_get_lock_sound_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_SET_LOCK_SOUND,
+                _status_plain(cmd.CMD_SET_LOCK_SOUND, cmd.RESPONSE_FAILED) + b"\x02",
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to get_lock_sound"):
+            await client.get_lock_sound()
+
+    async def test_get_lock_sound_admin_check_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.get_lock_sound()
+
     async def test_set_lock_sound_on(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
         fake.reply_for_next = [

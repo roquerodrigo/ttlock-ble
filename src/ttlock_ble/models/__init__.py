@@ -10,6 +10,7 @@ from .device_properties import DeviceProperties
 from .fingerprint_entry import FingerprintEntry
 from .lock_advertisement import LockAdvertisement
 from .lock_event import LockEvent
+from .lock_sound import LockSound
 from .lock_version import LockVersion
 from .log_entry import LogEntry
 from .passcode_entry import PasscodeEntry
@@ -25,6 +26,7 @@ __all__ = [
     "FingerprintEntry",
     "LockAdvertisement",
     "LockEvent",
+    "LockSound",
     "LockVersion",
     "LogEntry",
     "PasscodeEntry",

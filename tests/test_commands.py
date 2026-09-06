@@ -36,6 +36,9 @@ class TestPayloadBuilders:
     def test_set_lock_sound_off(self) -> None:
         assert cmd.payload_set_lock_sound(enabled=False) == bytes([0x02, 0x00])
 
+    def test_get_lock_sound_is_the_search_op(self) -> None:
+        assert cmd.payload_get_lock_sound() == bytes([0x01])
+
     def test_set_lock_volume_layout(self) -> None:
         assert cmd.payload_set_lock_volume(3) == bytes([0x02, 0x01, 3, 0x00])
 
@@ -148,6 +151,34 @@ class TestParsers:
 
     def test_state_battery_value(self) -> None:
         assert cmd.parse_state_battery(bytes([0x14, cmd.RESPONSE_SUCCESS, 0x55])) == 0x55
+
+    def test_lock_sound_search_with_volume(self) -> None:
+        plain = bytes([0x62, cmd.RESPONSE_SUCCESS, 0x5A, 0x01, 0x01, 0x05])
+        sound = cmd.parse_lock_sound_response(plain)
+        assert sound.enabled
+        assert sound.volume is LockVolume.HIGH
+
+    def test_lock_sound_search_off_without_volume_byte(self) -> None:
+        plain = bytes([0x62, cmd.RESPONSE_SUCCESS, 0x5A, 0x01, 0x00])
+        sound = cmd.parse_lock_sound_response(plain)
+        assert not sound.enabled
+        assert sound.volume is None
+
+    def test_lock_sound_search_ignores_a_volume_outside_the_known_levels(self) -> None:
+        plain = bytes([0x62, cmd.RESPONSE_SUCCESS, 0x5A, 0x01, 0x01, 0x00])
+        assert cmd.parse_lock_sound_response(plain).volume is None
+
+    def test_lock_sound_failure_raises(self) -> None:
+        with pytest.raises(RuntimeError, match="FAILED"):
+            cmd.parse_lock_sound_response(bytes([0x62, cmd.RESPONSE_FAILED, 0x02]))
+
+    def test_lock_sound_short_payload_raises(self) -> None:
+        with pytest.raises(ValueError, match="too short"):
+            cmd.parse_lock_sound_response(bytes([0x62, cmd.RESPONSE_SUCCESS, 0x5A, 0x01]))
+
+    def test_lock_sound_modify_ack_is_not_a_reading(self) -> None:
+        with pytest.raises(ValueError, match="expected op_echo=1"):
+            cmd.parse_lock_sound_response(bytes([0x62, cmd.RESPONSE_SUCCESS, 0x5A, 0x02, 0x01]))
 
     def test_auto_lock_failure_raises(self) -> None:
         with pytest.raises(RuntimeError, match="FAILED"):

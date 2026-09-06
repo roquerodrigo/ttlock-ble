@@ -40,7 +40,12 @@ from .fingerprint import (
     parse_fingerprint_list_response,
     payload_fingerprint_list,
 )
-from .lock_sound import payload_set_lock_sound, payload_set_lock_volume
+from .lock_sound import (
+    parse_lock_sound_response,
+    payload_get_lock_sound,
+    payload_set_lock_sound,
+    payload_set_lock_volume,
+)
 from .opcodes import (
     APICMD_LOCK_BY_ADMIN,
     APICMD_LOCK_BY_USER,
@@ -121,6 +126,7 @@ __all__ = [
     "parse_device_property_string",
     "parse_fingerprint_list_response",
     "parse_get_lock_time_response",
+    "parse_lock_sound_response",
     "parse_lock_status",
     "parse_operate_log_response",
     "parse_passcode_list_response",
@@ -134,6 +140,7 @@ __all__ = [
     "payload_device_property",
     "payload_fingerprint_list",
     "payload_get_aes_key",
+    "payload_get_lock_sound",
     "payload_get_lock_time",
     "payload_operate_log_request",
     "payload_passcode_add",
