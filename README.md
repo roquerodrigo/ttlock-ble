@@ -5,7 +5,7 @@
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/roquerodrigo)
 
-Async Python SDK for controlling **TTLock-family smart locks** (TTLock / DLock-XP) over **Bluetooth Low Energy** — lock, unlock, state and battery, passcode management, on-device operation log, and real-time push events, with no cloud round-trip on every operation.
+Async Python SDK for controlling **TTLock-family smart locks** (TTLock / DLock-XP) over **Bluetooth Low Energy** — lock, unlock, state and battery, keypad passcodes, enrolled fingerprints, auto-lock, sound, clock sync, device properties, on-device operation log, and real-time push events, with no cloud round-trip on every operation.
 
 > ⚠️ **Unofficial.** Not affiliated with, endorsed by, or supported by TTLock / Sciener
 > or any lock vendor. It speaks the BLE V3 protocol and the cloud API the official
@@ -28,6 +28,18 @@ TTLockCloud (HTTP, one-time)  ──►  VirtualKey (aesKey, lockMac, …)  ─�
 
 You bootstrap the eKeys from the cloud a single time (caching them locally), then every
 lock/unlock happens offline over Bluetooth.
+
+### Access levels
+
+Not every operation needs the same credential. The **Access** column in the tables below
+uses these levels:
+
+| Access | Meaning |
+| --- | --- |
+| None | No TTLock credential is involved — a plain BLE read or the local key cache |
+| Cloud account | The TTLock account e-mail and password (`TTLockCloud`) |
+| User eKey | Any valid eKey for the lock, shared or admin — the lock either checks it with `CHECK_USER_TIME` or answers without a handshake |
+| Admin eKey | The eKey of the account that owns the lock (it carries `adminPs`) — the command runs the `CHECK_ADMIN` handshake and the lock rejects anything else |
 
 ## Install
 
@@ -77,7 +89,7 @@ import asyncio
 from ttlock_ble import TTLockClient
 
 async def main(virtual_key) -> None:
-    async with TTLockClient(virtual_key) as lock:   # scans + connects + handshake
+    async with TTLockClient(virtual_key) as lock:   # scans + connects
         await lock.unlock()
         state, battery = await lock.query_state()
         print(state, f"{battery}%")
@@ -86,9 +98,11 @@ asyncio.run(main(keys[0]))
 ```
 
 `TTLockClient` is an async context manager: it scans for `key.lockMac`, picks the GATT
-service, runs the `CHECK_USER_TIME` handshake, then issues commands. Pass a pre-resolved
-`device=` (or use `TTLockClient.from_ble_device(...)`) to skip the scan — that is how the
-Home Assistant integration hands in a `BLEDevice` from HA's own bluetooth manager.
+service and opens the link; each command then runs the handshake it needs
+(`CHECK_USER_TIME` for the bolt, `CHECK_ADMIN` for admin-gated settings — see
+[Access levels](#access-levels)). Pass a pre-resolved `device=` (or use
+`TTLockClient.from_ble_device(...)`) to skip the scan — that is how the Home Assistant
+integration hands in a `BLEDevice` from HA's own bluetooth manager.
 
 ### Real-time events
 
@@ -129,27 +143,30 @@ Installing the package with the `cli` extra (`pip install "ttlock-ble[cli]"`) ex
 `ttlock` command (env: `TTLOCK_EMAIL`, `TTLOCK_PASSWORD`,
 optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is honored):
 
-| Command | What it does |
-| --- | --- |
-| `ttlock sync` | Log in to the cloud and cache the account's eKeys locally |
-| `ttlock verify <code>` | Register this machine with the new-device verification code |
-| `ttlock list` | Show cached locks |
-| `ttlock unlock <lock>` | Unlock a lock over Bluetooth |
-| `ttlock lock <lock>` | Lock a lock over Bluetooth |
-| `ttlock state <lock>` | Query current state and battery |
-| `ttlock battery <lock>` | Show battery percentage |
-| `ttlock sound <lock> <on\|off>` | Turn the keypad/lock beep on or off (admin eKey required) |
-| `ttlock volume <lock> <1-5>` | Set the keypad/lock beep volume (admin eKey required; no-op on beeper-only hardware) |
-| `ttlock device-info <lock>` | Show the standard BLE Device Information Service fields |
-| `ttlock get-device-properties <lock>` | Show the 6 TTLock-proprietary device properties (admin eKey required) |
-| `ttlock add-passcode <lock> <code>` | Provision a keypad passcode (admin eKey required) |
-| `ttlock delete-passcode <lock> <code>` | Remove a keypad passcode (admin eKey required) |
-| `ttlock clear-passcodes <lock>` | Wipe ALL keypad passcodes — no undo (admin eKey required) |
-| `ttlock get-passcodes <lock>` | List keypad passcodes visible to this query — **not exhaustive**, see below (admin eKey required) |
-| `ttlock get-auto-lock <lock>` | Read the auto-lock delay in seconds (admin eKey required) |
-| `ttlock set-auto-lock <lock> <seconds>` | Set the auto-lock delay in seconds (admin eKey required) |
-| `ttlock get-auto-lock-limits <lock>` | Show the min/max auto-lock delay this lock accepts (admin eKey required) |
-| `ttlock get-fingerprints <lock>` | List enrolled fingerprints (admin eKey required) |
+| Command | Access | What it does |
+| --- | --- | --- |
+| `ttlock sync` | Cloud account | Log in to the cloud and cache the account's eKeys locally |
+| `ttlock verify <code>` | Cloud account | Register this machine with the new-device verification code |
+| `ttlock list` | None | Show cached locks |
+| `ttlock unlock <lock>` | User eKey | Unlock a lock over Bluetooth |
+| `ttlock lock <lock>` | User eKey | Lock a lock over Bluetooth |
+| `ttlock state <lock>` | User eKey | Query current state and battery |
+| `ttlock battery <lock>` | User eKey | Show battery percentage |
+| `ttlock sound <lock> <on\|off>` | Admin eKey | Turn the keypad/lock beep on or off |
+| `ttlock volume <lock> <1-5>` | Admin eKey | Set the keypad/lock beep volume (no-op on beeper-only hardware) |
+| `ttlock device-info <lock>` | None | Show the standard BLE Device Information Service fields — a plain GATT read; the cached eKey only resolves the address |
+| `ttlock get-device-properties <lock>` | Admin eKey | Show the 6 TTLock-proprietary device properties |
+| `ttlock add-passcode <lock> <code>` | Admin eKey | Provision a keypad passcode |
+| `ttlock delete-passcode <lock> <code>` | Admin eKey | Remove a keypad passcode |
+| `ttlock clear-passcodes <lock>` | Admin eKey | Wipe ALL keypad passcodes — no undo |
+| `ttlock get-passcodes <lock>` | Admin eKey | List the keypad passcodes the lock reports — **not exhaustive**: a passcode created by the official app and never yet used at the keypad does not appear |
+| `ttlock get-auto-lock <lock>` | Admin eKey | Read the auto-lock delay in seconds |
+| `ttlock set-auto-lock <lock> <seconds>` | Admin eKey | Set the auto-lock delay in seconds (`0` disables it) |
+| `ttlock get-auto-lock-limits <lock>` | Admin eKey | Show the min/max auto-lock delay this lock accepts |
+| `ttlock get-fingerprints <lock>` | Admin eKey | List enrolled fingerprints — blind to cyclic (day-of-week / time-range) restrictions |
+
+Every BLE command takes `-v` for debug logging. `<lock>` is a `lockId`, alias or MAC from
+`ttlock list`.
 
 Typical first run: `ttlock sync` → (if prompted) check email → `ttlock verify <code>` →
 `ttlock sync` again → `ttlock unlock <lock>`.
@@ -160,35 +177,37 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 ### `TTLockClient` (BLE)
 
-| Method | Purpose |
-| --- | --- |
-| `connect()` / `disconnect()` | Open / close the BLE link (or use `async with`) |
-| `unlock()` / `lock()` | Drive the bolt |
-| `query_state()` | `(LockState \| None, battery_percent \| None)` |
-| `get_auto_lock_time()` / `set_auto_lock_time(seconds)` | Read / set the auto-lock delay (admin eKey required) |
-| `get_auto_lock_limits()` | Min/max auto-lock delay this lock accepts (`AutoLockLimits`, admin eKey required) |
-| `get_fingerprints()` | Enrolled fingerprints (`list[FingerprintEntry]`, admin eKey required) — see its docstring: blind to cyclic (day/time) restrictions |
-| `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Manage keypad passcodes (admin eKey required) |
-| `get_passcodes()` | Keypad passcodes visible to this query (`list[PasscodeEntry]`, admin eKey required) — **not exhaustive**: a passcode never added through this library, and never yet used at the keypad, won't appear |
-| `get_operation_log()` | Paginated on-device operation log (`list[LogEntry]`) |
-| `set_lock_sound(enabled)` | Turn the keypad/lock beep on or off (admin eKey required) |
-| `set_lock_volume(level)` | Set the keypad/lock beep volume, 1-5 or `LockVolume` (admin eKey required; no-op on beeper-only hardware) |
-| `get_lock_time()` / `calibrate_time(local_time)` / `sync_time(local_time=…)` | Read / align the lock's clock — the reference is the lock's **local** time, and writing it requires an admin eKey |
-| `get_device_info()` | Standard BLE Device Information Service fields (`DeviceInfo`) — no TTLock handshake needed |
-| `get_device_properties()` | 6 TTLock-proprietary device properties (`DeviceProperties`, admin eKey required) — separate, encrypted mechanism, distinct from `get_device_info()` |
-| `add_event_listener(cb)` / `remove_event_listener(cb)` | Subscribe to `LockEvent` pushes |
-| `is_connected` | Property — `True` while a connection is open |
+| Method | Access | Purpose |
+| --- | --- | --- |
+| `connect()` / `disconnect()` | — | Open / close the BLE link (or use `async with`) |
+| `unlock()` / `lock()` | User eKey | Drive the bolt |
+| `query_state()` | User eKey | `(LockState \| None, battery_percent \| None)` |
+| `get_operation_log()` | User eKey | Paginated on-device operation log (`list[LogEntry]`) |
+| `get_lock_time()` | User eKey | Read the lock's clock as a naive `datetime` in the lock's **local** time |
+| `calibrate_time(local_time)` | Admin eKey | Write the lock's clock — the reference must be the lock's **local** time |
+| `sync_time(local_time=…)` | User eKey; Admin eKey when it recalibrates | Read the clock, return the drift, and call `calibrate_time` only when the drift exceeds the threshold |
+| `get_auto_lock_time()` / `set_auto_lock_time(seconds)` | Admin eKey | Read / set the auto-lock delay (`0` disables it) |
+| `get_auto_lock_limits()` | Admin eKey | Min/max auto-lock delay this lock accepts (`AutoLockLimits`) |
+| `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Admin eKey | Manage keypad passcodes |
+| `get_passcodes()` | Admin eKey | Keypad passcodes the lock reports (`list[PasscodeEntry]`) — **not exhaustive**: a passcode never added through this library, and never yet used at the keypad, won't appear |
+| `get_fingerprints()` | Admin eKey | Enrolled fingerprints (`list[FingerprintEntry]`) — blind to cyclic (day-of-week / time-range) restrictions |
+| `set_lock_sound(enabled)` | Admin eKey | Turn the keypad/lock beep on or off |
+| `set_lock_volume(level)` | Admin eKey | Set the keypad/lock beep volume, 1-5 or `LockVolume` (no-op on beeper-only hardware) |
+| `get_device_info()` | None | Standard BLE Device Information Service fields (`DeviceInfo`) — plain GATT, no TTLock handshake |
+| `get_device_properties()` | Admin eKey | 6 TTLock-proprietary device properties (`DeviceProperties`) — TTLock's own encrypted mechanism, distinct from `get_device_info()` |
+| `add_event_listener(cb)` / `remove_event_listener(cb)` | — | Subscribe to `LockEvent` pushes |
+| `is_connected` | — | Property — `True` while a connection is open |
 
 ### `TTLockCloud` (HTTP, bootstrap only)
 
-| Method | Purpose |
-| --- | --- |
-| `login(email, password)` | Authenticate; caches the access token |
-| `request_login_verification_code(email)` | Email/SMS a new-device login code |
-| `validate_new_device(email, code)` | Register this machine with the code |
-| `discover_site()` | Resolve the regional API base URL / site |
-| `list_keys()` | Fetch the account's eKeys as `list[VirtualKey]` |
-| `aclose()` | Release the HTTP connection pool |
+| Method | Access | Purpose |
+| --- | --- | --- |
+| `discover_site()` | None | Resolve the regional API base URL / site for the caller's public IP |
+| `request_login_verification_code(email)` | None | Email/SMS a new-device login code |
+| `validate_new_device(email, code)` | None | Register this machine with the code |
+| `login(email, password)` | Cloud account | Authenticate; caches the access token |
+| `list_keys()` | Cloud account | Fetch the account's eKeys as `list[VirtualKey]` — requires a prior `login()` |
+| `aclose()` | — | Release the HTTP connection pool |
 
 ### Models & enums
 
@@ -208,9 +227,10 @@ See [`CODE_STYLE.md`](./CODE_STYLE.md) for project conventions.
 
 ```bash
 uv sync
-uv run pytest        # tests
-uv run ruff check .  # lint
-uv run mypy src      # types
+uv run ruff format --check .  # formatting
+uv run ruff check .           # lint
+uv run mypy src               # types
+uv run pytest                 # tests (coverage gate included)
 ```
 
 ## Support

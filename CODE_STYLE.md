@@ -39,7 +39,7 @@ committing — all three must exit cleanly. `uv run pytest` follows.
   `LockVersion`, `Frame`, `FrameReassembler`.
 - Exception classes end with `Error`: `TTLockError`, `CloudError`.
 - Module names are `snake_case`. Subpackages are organized by concern
-  (`protocol`, `cloud`, `commands`).
+  (`ble`, `commands`, `constants`, `exceptions`, `models`, `protocol`).
 - Private attributes / functions are prefixed with `_`.
 
 ## Typing
