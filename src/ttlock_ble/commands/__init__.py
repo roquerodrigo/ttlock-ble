@@ -5,9 +5,9 @@ official Android SDK. We focus on `lockType=5` (V3), which covers virtually
 every current DLock-XP / TTLock smart-lock SKU.
 
 One submodule per command family — `session` for the handshake, `control`
-for the bolt, `clock`, `auto_lock`, `passcode`, `operate_log`,
-`lock_sound`, `fingerprint` and `device_properties` for the rest — over the
-shared `opcodes`, `envelope` and `encoding` primitives.
+for the bolt, `clock`, `auto_lock`, `passcode`, `passcode_list`,
+`operate_log`, `lock_sound`, `fingerprint` and `device_properties` for the
+rest — over the shared `opcodes`, `envelope` and `encoding` primitives.
 """
 
 from __future__ import annotations
@@ -54,6 +54,7 @@ from .opcodes import (
     CMD_GET_DEVICE_PROPERTIES,
     CMD_GET_LOCK_TIME,
     CMD_GET_OPERATE_LOG,
+    CMD_GET_PASSCODES,
     CMD_INIT_PASSWORDS,
     CMD_LOCK,
     CMD_MANAGE_FINGERPRINT,
@@ -68,6 +69,7 @@ from .opcodes import (
 )
 from .operate_log import parse_operate_log_response, payload_operate_log_request
 from .passcode import payload_passcode_add, payload_passcode_clear, payload_passcode_delete
+from .passcode_list import parse_passcode_list_response, payload_passcode_list
 from .session import (
     VENDOR,
     parse_check_admin_response,
@@ -91,6 +93,7 @@ __all__ = [
     "CMD_GET_DEVICE_PROPERTIES",
     "CMD_GET_LOCK_TIME",
     "CMD_GET_OPERATE_LOG",
+    "CMD_GET_PASSCODES",
     "CMD_INIT_PASSWORDS",
     "CMD_LOCK",
     "CMD_MANAGE_FINGERPRINT",
@@ -120,6 +123,7 @@ __all__ = [
     "parse_get_lock_time_response",
     "parse_lock_status",
     "parse_operate_log_response",
+    "parse_passcode_list_response",
     "parse_response_status",
     "parse_state_battery",
     "payload_auto_lock_search",
@@ -135,6 +139,7 @@ __all__ = [
     "payload_passcode_add",
     "payload_passcode_clear",
     "payload_passcode_delete",
+    "payload_passcode_list",
     "payload_query_state",
     "payload_set_lock_sound",
     "payload_set_lock_volume",

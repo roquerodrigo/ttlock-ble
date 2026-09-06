@@ -28,6 +28,7 @@ from .models import (
     FingerprintEntry,
     LockEvent,
     LogEntry,
+    PasscodeEntry,
 )
 from .protocol import Frame
 
@@ -47,6 +48,10 @@ log: logging.Logger = logging.getLogger("ttlock_ble.client")
 
 # No confirmed lock enrols anywhere near this many; see `get_fingerprints`.
 _MAX_FINGERPRINT_ENTRIES = 50
+# Guards `get_passcodes` against looping forever if the lock's own
+# next_sequence cursor never reaches 0 - no confirmed lock has anywhere
+# near this many passcodes.
+_MAX_PASSCODE_ENTRIES = 50
 
 
 class TTLockClient:
@@ -432,6 +437,64 @@ class TTLockClient:
                 "clear_passcodes",
             )
 
+    async def get_passcodes(self) -> list[PasscodeEntry]:
+        """Read the keypad passcodes visible to this query - NOT an exhaustive list.
+
+        A passcode not created through this library, and never yet
+        physically used at the keypad, will not appear here, even
+        though it is active and valid. This method cannot be used to
+        enumerate all passcodes currently on the lock - only custom-type
+        entries and any others confirmed via real-world use.
+
+        Confirmed via extensive live testing: passcodes created via
+        `add_passcode` (CMD 0x03, regardless of the `pwd_type`
+        requested) appear immediately and permanently, every time this
+        list is read. Passcodes created via the official app's own
+        batch/offline-capable mechanism (CMD 0x31) do not appear until
+        they have been successfully used on the physical keypad at
+        least once.
+
+        Admin-gated by design, matching `add_passcode` - unlike that
+        method's history, this has not been independently tested
+        without the handshake, so treat the gating as precautionary
+        rather than confirmed necessary. Single connection, single admin
+        handshake, one BLE round-trip per entry - follows the lock's own
+        `next_sequence` cursor until it reaches 0, rather than counting
+        a fixed range. Raises `TTLockError` if the cursor never reaches
+        0 within `_MAX_PASSCODE_ENTRIES` round trips, rather than
+        silently returning a possibly-incomplete list.
+
+        See `PasscodeEntry` and `CyclicSchedule` for what each field
+        means, including which parts of the cyclic (day-of-week)
+        schedule format remain unconfirmed.
+        """
+        async with self._command_lock:
+            await self._admin_handshake()
+            entries: list[PasscodeEntry] = []
+            sequence = 0
+            for _attempt in range(_MAX_PASSCODE_ENTRIES):
+                resp = await self._transport.exchange(
+                    self._frame(cmd.CMD_GET_PASSCODES, cmd.payload_passcode_list(sequence))
+                )
+                plain = self._decrypt_response(resp, "get_passcodes")
+                log.debug("passcode list response plaintext: %s", plain.hex())
+                try:
+                    entry, next_sequence = cmd.parse_passcode_list_response(plain)
+                except (RuntimeError, ValueError) as error:
+                    raise TTLockError(f"Failed to get_passcodes: {error}") from error
+                if entry is not None:
+                    entries.append(entry)
+                if next_sequence == 0:
+                    break
+                sequence = next_sequence
+            else:
+                raise TTLockError(
+                    f"Failed to get_passcodes: exceeded safety cap of "
+                    f"{_MAX_PASSCODE_ENTRIES} entries without the lock's cursor reaching 0"
+                )
+        log.info("fetched %d passcode(s)", len(entries))
+        return entries
+
     async def get_operation_log(
         self,
         *,
@@ -804,6 +867,11 @@ class TTLockClient:
         on confirmed evidence: that opcode has only ever been observed
         inside an already-admin-handshaked session, never tested in
         isolation - see its own docstring.
+
+        `get_passcodes` runs it too, even though it is a read: unlike
+        the rejections above, this one is by design rather than
+        confirmed via testing without the handshake - see its own
+        docstring.
 
         Checks the admin password before touching the BLE link: it is
         `""` on a key that never carried one, and `payload_check_admin`

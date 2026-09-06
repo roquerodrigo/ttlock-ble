@@ -16,8 +16,17 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.conftest import make_virtual_key
-from ttlock_ble import AutoLockLimits, DeviceInfo, DeviceProperties, FingerprintEntry, LockState
+from ttlock_ble import (
+    AutoLockLimits,
+    CyclicSchedule,
+    DeviceInfo,
+    DeviceProperties,
+    FingerprintEntry,
+    LockState,
+    PasscodeEntry,
+)
 from ttlock_ble._cloud_helpers import ERR_NEW_DEVICE_LOGIN
+from ttlock_ble.constants import KeyboardPwdType
 from ttlock_ble.exceptions import CloudError
 
 if TYPE_CHECKING:
@@ -388,6 +397,61 @@ class TestBleCommands:
         result = runner.invoke(cli_module.app, ["clear-passcodes", "2"], input="n\n")
         assert result.exit_code != 0
         client.clear_passcodes.assert_not_awaited()
+
+    def test_get_passcodes(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_passcodes = AsyncMock(
+            return_value=[
+                PasscodeEntry(
+                    passcode="445566",
+                    pwd_type=KeyboardPwdType.PERMANENT,
+                    start_date=dt.datetime(2000, 1, 1, 0, 0),  # noqa: DTZ001 -- lock RTC is naive
+                    end_date=None,
+                    cyclic_schedule=None,
+                ),
+                PasscodeEntry(
+                    passcode="11223344",
+                    pwd_type=KeyboardPwdType.PERIOD,
+                    start_date=dt.datetime(2025, 6, 1, 8, 0),  # noqa: DTZ001 -- lock RTC is naive
+                    end_date=dt.datetime(2025, 12, 31, 20, 0),  # noqa: DTZ001 -- lock RTC is naive
+                    cyclic_schedule=None,
+                ),
+                PasscodeEntry(
+                    passcode="9988",
+                    pwd_type=KeyboardPwdType.CIRCLE,
+                    start_date=None,
+                    end_date=None,
+                    cyclic_schedule=CyclicSchedule(
+                        day_or_preset="Monday", start_hour=8, start_minute=0, duration_hours=4
+                    ),
+                ),
+            ]
+        )
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-passcodes", "2", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "passcode=445566" in result.output
+        assert "type=permanent" in result.output
+        assert "passcode=11223344" in result.output
+        assert "type=custom" in result.output
+        assert "2025-06-01 08:00:00" in result.output
+        assert "2025-12-31 20:00:00" in result.output
+        assert "passcode=9988" in result.output
+        assert "type=cyclic" in result.output
+        assert "Monday 08:00-12:00 (4h)" in result.output
+        assert "not exhaustive" in result.output
+
+    def test_get_passcodes_empty(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_passcodes = AsyncMock(return_value=[])
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-passcodes", "2"])
+        assert result.exit_code == 0, result.output
+        assert "no passcodes visible" in result.output
 
     def test_get_auto_lock(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app

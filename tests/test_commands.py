@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import datetime as dt
+import inspect
 from typing import TYPE_CHECKING
 
 import pytest
 
 from ttlock_ble import commands as cmd
-from ttlock_ble.commands import log_record
+from ttlock_ble.commands import log_record, passcode_list
 from ttlock_ble.constants import KeyboardPwdType, LockState, LockVolume
+from ttlock_ble.models import CyclicSchedule
 
 if TYPE_CHECKING:
     from ttlock_ble.models import LogEntry
@@ -92,6 +94,10 @@ class TestPayloadBuilders:
     def test_passcode_delete_and_clear(self) -> None:
         assert cmd.payload_passcode_delete(int(KeyboardPwdType.PERMANENT), "1234")
         assert len(cmd.payload_passcode_clear()) == 1
+
+    def test_passcode_list_sequence_is_uint16_be(self) -> None:
+        assert cmd.payload_passcode_list(0) == b"\x00\x00"
+        assert cmd.payload_passcode_list(300) == (300).to_bytes(2, "big")
 
     def test_operate_log_request(self) -> None:
         assert cmd.payload_operate_log_request() == b"\xff\xff"
@@ -357,6 +363,314 @@ class TestDeviceProperties:
         plain = bytes([0x90, cmd.RESPONSE_SUCCESS, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
         with pytest.raises(ValueError, match="not a valid date"):
             cmd.parse_device_property_clock(plain)
+
+
+def _passcode_item(*, pwd_type: int, new_pwd: bytes, pwd: bytes, trailer: bytes) -> bytes:
+    """Build one `[item_len][pwd_type][new_pwd_len][new_pwd][pwd_len][pwd][trailer]` item.
+
+    Synthetic, structurally derived from the confirmed wire layout - used
+    only for error/edge cases a real capture can't provide (a malformed
+    response, an untested day-of-week). The happy-path fixtures below use
+    real captured bytes instead - see `_real_plain`.
+    """
+    body = bytes([pwd_type, len(new_pwd)]) + new_pwd + bytes([len(pwd)]) + pwd + trailer
+    return bytes([len(body)]) + body
+
+
+def _passcode_response(*, next_sequence: int, item: bytes = b"") -> bytes:
+    header = b"\x00\x00" + next_sequence.to_bytes(2, "big")  # header[0:2] purpose unconfirmed
+    return bytes([cmd.CMD_GET_PASSCODES, cmd.RESPONSE_SUCCESS]) + header + item
+
+
+_PERMANENT_START_SENTINEL = bytes([0x00, 0x01, 0x01, 0x00, 0x00])  # 2000-01-01 00:00
+
+
+def _real_plain(data_hex: str) -> bytes:
+    """Wrap a real captured `data` hex string (echo=0x07, status=SUCCESS) into a full plaintext."""
+    return bytes([cmd.CMD_GET_PASSCODES, cmd.RESPONSE_SUCCESS]) + bytes.fromhex(data_hex)
+
+
+class TestPasscodeList:
+    """The happy-path fixtures below are real CMD 0x07 captures from a physical
+    lock, pasted verbatim as `data_hex` (the `data` portion of a SUCCESS
+    response, after cmd_echo/status).
+
+    These are what disproved the originally-assumed CIRCLE trailer layout
+    (a literal `base_selector` wire byte) - see
+    `commands.passcode_list._decode_cyclic_schedule`'s docstring for what
+    changed and why. Error-path tests further down remain synthetic, since
+    no real capture exercises a malformed response.
+    """
+
+    def test_period_entry(self) -> None:
+        # PERIOD is what the TTLock app itself labels "Custom" - see cli.py's
+        # `_PWD_TYPE_LABELS`.
+        plain = _real_plain("002000011d0308313939303731383008313939303731383000010100001b09061100")
+        entry, next_seq = cmd.parse_passcode_list_response(plain)
+        assert entry is not None
+        assert entry.passcode == "19907180"
+        assert entry.pwd_type == KeyboardPwdType.PERIOD
+        assert not entry.is_permanent
+        assert entry.start_date == dt.datetime(2000, 1, 1, 0, 0)  # noqa: DTZ001 -- lock RTC is naive
+        assert entry.end_date == dt.datetime(2027, 9, 6, 17, 0)  # noqa: DTZ001 -- lock RTC is naive
+        assert entry.cyclic_schedule is None
+        assert next_seq == 1
+
+    def test_permanent_entry(self) -> None:
+        plain = _real_plain("001b015018010836303932303534390836303932303534390001010000")
+        entry, next_seq = cmd.parse_passcode_list_response(plain)
+        assert entry is not None
+        assert entry.passcode == "60920549"
+        assert entry.pwd_type == KeyboardPwdType.PERMANENT
+        assert entry.is_permanent
+        assert entry.start_date == dt.datetime(2000, 1, 1, 0, 0)  # noqa: DTZ001 -- lock RTC is naive
+        assert entry.end_date is None
+        assert entry.cyclic_schedule is None
+        assert next_seq == 336
+
+    @pytest.mark.parametrize(
+        ("data_hex", "passcode", "day_or_preset", "start_hour", "duration_hours"),
+        [
+            (
+                "001f00021c040935323839353833353909353238393538333539000101110004c0",
+                "528958359",
+                "Sunday",
+                17,
+                1,
+            ),
+            (
+                "001f00031c04093335383230333139350933353832303331393500010111000400",
+                "358203195",
+                "Daily",
+                17,
+                1,
+            ),
+            (
+                "001f00041c040934363539333333353309343635393333333533000101110003e8",
+                "465933353",
+                "Weekend",
+                17,
+                1,
+            ),
+            (
+                "001f00051c040937303235373538363709373032353735383637000101110004a8",
+                "702575867",
+                "Saturday",
+                17,
+                1,
+            ),
+            (
+                "001f00061c04093636383230353130320936363832303531303200010111000430",
+                "668205102",
+                "Monday",
+                17,
+                1,
+            ),
+            (
+                "001f00071c04093439383133383331340934393831333833313400010110000419",
+                "498138314",
+                "Workdays",
+                16,
+                2,
+            ),
+            (
+                "001f00081c04093430383634393633320934303836343936333200010111000449",
+                "408649632",
+                "Tuesday",
+                17,
+                2,
+            ),
+            (
+                "001f00091c0409363837353438353136093638373534383531360001010a0003f1",
+                "687548516",
+                "Weekend",
+                10,
+                10,
+            ),
+        ],
+    )
+    def test_cyclic_entry_real_captures(
+        self,
+        data_hex: str,
+        passcode: str,
+        day_or_preset: str,
+        start_hour: int,
+        duration_hours: int,
+    ) -> None:
+        # The two Weekend rows (duration 1 and 10) are the "two independent
+        # duration tests" that confirmed its base value exactly.
+        entry, _ = cmd.parse_passcode_list_response(_real_plain(data_hex))
+        assert entry is not None
+        assert entry.passcode == passcode
+        assert entry.pwd_type == KeyboardPwdType.CIRCLE
+        assert entry.start_date is None
+        assert entry.end_date is None
+        assert entry.cyclic_schedule == CyclicSchedule(
+            day_or_preset=day_or_preset,
+            start_hour=start_hour,
+            start_minute=0,
+            duration_hours=duration_hours,
+        )
+
+    def test_end_of_list_is_a_bare_two_byte_response(self) -> None:
+        # Confirmed on real hardware: the terminal response is `0000` -
+        # too short to even carry next_sequence, not a 4-byte header
+        # followed by an empty item.
+        entry, next_seq = cmd.parse_passcode_list_response(_real_plain("0000"))
+        assert entry is None
+        assert next_seq == 0
+
+    @pytest.mark.parametrize(
+        ("day_or_preset", "base_selector"),
+        [
+            ("Daily", 0),
+            ("Workdays", 24),
+            ("Monday", 48),
+            ("Tuesday", 72),
+            ("Wednesday", 96),
+            ("Thursday", 120),
+            ("Friday", 144),
+            ("Saturday", 168),
+            ("Sunday", 192),
+            ("Weekend", 232),
+        ],
+    )
+    def test_cyclic_reverse_inference_every_base_selector(
+        self, day_or_preset: str, base_selector: int
+    ) -> None:
+        """Synthetic - exercises the inference formula for every known base,
+        including Wednesday/Thursday/Friday, which no real capture has ever
+        exercised (see the module docstring and the source-audit test below).
+        """
+        duration_hours = 3
+        low_byte = base_selector + duration_hours - 1
+        trailer = bytes(
+            [0x00, 0x01, 0x01, 8, 30, 0x04, low_byte]
+        )  # trailer[5]=4, per real captures
+        item = _passcode_item(
+            pwd_type=int(KeyboardPwdType.CIRCLE), new_pwd=b"9988", pwd=b"9988", trailer=trailer
+        )
+        entry, _ = cmd.parse_passcode_list_response(_passcode_response(next_sequence=0, item=item))
+        assert entry is not None
+        assert entry.cyclic_schedule == CyclicSchedule(
+            day_or_preset=day_or_preset,
+            start_hour=8,
+            start_minute=30,
+            duration_hours=duration_hours,
+        )
+
+    def test_new_pwd_differing_from_pwd_exposes_new_pwd(self) -> None:
+        # Synthetic: "identical when the passcode hasn't been changed since
+        # creation" - no real capture has shown the two differ, so this
+        # covers the case on paper; `passcode` follows new_pwd.
+        item = _passcode_item(
+            pwd_type=int(KeyboardPwdType.PERMANENT),
+            new_pwd=b"999999",
+            pwd=b"111111",
+            trailer=_PERMANENT_START_SENTINEL,
+        )
+        entry, _ = cmd.parse_passcode_list_response(_passcode_response(next_sequence=0, item=item))
+        assert entry is not None
+        assert entry.passcode == "999999"
+
+    def test_final_entry_can_carry_next_sequence_zero(self) -> None:
+        # Synthetic: no real capture ended this way (the real end-of-list
+        # was always the bare 2-byte marker), but the protocol description
+        # allows it, so the parser must handle it without special-casing.
+        item = _passcode_item(
+            pwd_type=int(KeyboardPwdType.PERMANENT),
+            new_pwd=b"1234",
+            pwd=b"1234",
+            trailer=_PERMANENT_START_SENTINEL,
+        )
+        entry, next_seq = cmd.parse_passcode_list_response(
+            _passcode_response(next_sequence=0, item=item)
+        )
+        assert entry is not None
+        assert next_seq == 0
+
+    def test_short_item_with_full_header_is_treated_as_end_of_list(self) -> None:
+        # Synthetic: a full 4-byte header but too little data for an item -
+        # never seen in a real capture (the real end-of-list is the bare
+        # 2-byte marker instead), but handled leniently rather than raising.
+        plain = bytes([cmd.CMD_GET_PASSCODES, cmd.RESPONSE_SUCCESS, 0x00, 0x00, 0x00, 0x03])
+        entry, next_seq = cmd.parse_passcode_list_response(plain)
+        assert entry is None
+        assert next_seq == 3
+
+    def test_failure_status_raises(self) -> None:
+        plain = bytes([cmd.CMD_GET_PASSCODES, cmd.RESPONSE_FAILED, 0xFF])
+        with pytest.raises(RuntimeError, match="FAILED"):
+            cmd.parse_passcode_list_response(plain)
+
+    def test_short_header_is_treated_as_end_of_list(self) -> None:
+        # Any data shorter than a full 4-byte header is end-of-list, not an
+        # error - matches the confirmed bare 2-byte terminal response.
+        plain = bytes([cmd.CMD_GET_PASSCODES, cmd.RESPONSE_SUCCESS, 0x00])
+        entry, next_seq = cmd.parse_passcode_list_response(plain)
+        assert entry is None
+        assert next_seq == 0
+
+    def test_unknown_pwd_type_raises(self) -> None:
+        item = _passcode_item(pwd_type=0x09, new_pwd=b"1234", pwd=b"1234", trailer=b"")
+        with pytest.raises(ValueError, match="unknown pwd_type"):
+            cmd.parse_passcode_list_response(_passcode_response(next_sequence=0, item=item))
+
+    def test_pwd_type_with_no_confirmed_layout_raises(self) -> None:
+        # KeyboardPwdType.COUNT (2) is a recognized enum member, but no
+        # trailer layout for it has ever been confirmed - must not guess.
+        item = _passcode_item(
+            pwd_type=int(KeyboardPwdType.COUNT), new_pwd=b"1234", pwd=b"1234", trailer=b""
+        )
+        with pytest.raises(ValueError, match="no confirmed layout"):
+            cmd.parse_passcode_list_response(_passcode_response(next_sequence=0, item=item))
+
+    def test_trailer_too_short_raises(self) -> None:
+        item = _passcode_item(
+            pwd_type=int(KeyboardPwdType.PERMANENT),
+            new_pwd=b"1234",
+            pwd=b"1234",
+            trailer=b"\x00\x01",
+        )
+        with pytest.raises(ValueError, match="too short for its trailer"):
+            cmd.parse_passcode_list_response(_passcode_response(next_sequence=0, item=item))
+
+    def test_every_possible_low_byte_resolves_to_some_base(self) -> None:
+        # Daily's base is 0, the floor of every known selector, so no
+        # low_byte value (0-255) can ever fail to resolve to *some* named
+        # preset/day - there is no "unrecognized base_selector" to reject.
+        for low_byte in (0, 1, 23, 255):
+            trailer = bytes([0x00, 0x01, 0x01, 8, 0, 0x04, low_byte])
+            item = _passcode_item(
+                pwd_type=int(KeyboardPwdType.CIRCLE), new_pwd=b"9988", pwd=b"9988", trailer=trailer
+            )
+            entry, _ = cmd.parse_passcode_list_response(
+                _passcode_response(next_sequence=0, item=item)
+            )
+            assert entry is not None
+            assert entry.cyclic_schedule is not None
+
+    def test_invalid_permanent_date_raises(self) -> None:
+        item = _passcode_item(
+            pwd_type=int(KeyboardPwdType.PERMANENT),
+            new_pwd=b"1234",
+            pwd=b"1234",
+            trailer=bytes([0x00, 0xFF, 0xFF, 0x00, 0x00]),
+        )
+        with pytest.raises(ValueError, match="not a valid date"):
+            cmd.parse_passcode_list_response(_passcode_response(next_sequence=0, item=item))
+
+    def test_wednesday_thursday_friday_never_claimed_confirmed_in_source(self) -> None:
+        """The three formula-predicted days must stay flagged as such, not confirmed."""
+        src = inspect.getsource(passcode_list)
+        for day in ("Wednesday", "Thursday", "Friday"):
+            marked_lines = [line for line in src.splitlines() if f'"{day}"' in line]
+            assert marked_lines, f"expected to find {day} in commands/passcode_list.py"
+            for line in marked_lines:
+                assert "formula-predicted" in line, (
+                    f"{day}'s BASE_SELECTOR entry must stay flagged as "
+                    f"formula-predicted, not silently claimed confirmed: {line!r}"
+                )
 
 
 def _log_frame_plain(records: list[bytes], sequence: int) -> bytes:

@@ -16,15 +16,35 @@ from dotenv import load_dotenv
 from ._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from .client import TTLockClient
 from .cloud import TTLockCloud
-from .constants import LockVolume
+from .constants import KeyboardPwdType, LockVolume
 from .exceptions import CloudError
-from .models import AutoLockLimits, DeviceInfo, DeviceProperties, FingerprintEntry, VirtualKey
+from .models import (
+    AutoLockLimits,
+    DeviceInfo,
+    DeviceProperties,
+    FingerprintEntry,
+    PasscodeEntry,
+    VirtualKey,
+)
 
 if TYPE_CHECKING:
     from .constants import LockState
 
 app = typer.Typer(add_completion=False, help="DLock-XP / TTLock BLE control")
 KEY_STORE = Path(os.environ.get("TTLOCK_KEY_STORE", "~/.ttlock/keys.json")).expanduser()
+
+# Matches the official TTLock app's own displayed type name for PERMANENT
+# and PERIOD ("Custom" - confirmed via the app's own passcode-info screen,
+# not a generic SDK term), and matches this codebase's own established
+# terminology for CIRCLE (CyclicSchedule, _decode_cyclic_schedule) rather
+# than introducing a third, unused synonym. COUNT is deliberately left
+# out: `get_passcodes` can't decode it (no confirmed trailer layout), so
+# no entry with that type can ever reach this display.
+_PWD_TYPE_LABELS = {
+    KeyboardPwdType.PERMANENT: "permanent",
+    KeyboardPwdType.PERIOD: "custom",
+    KeyboardPwdType.CIRCLE: "cyclic",
+}
 
 
 def _load_env() -> tuple[str, str]:
@@ -298,6 +318,46 @@ def clear_passcodes(
     typer.echo("✓ all passcodes cleared")
 
 
+@app.command("get-passcodes")
+def get_passcodes(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """List keypad passcodes visible to this query (requires an admin eKey).
+
+    NOT exhaustive: a passcode never added through this library, and
+    never yet physically used at the keypad, will not appear here even
+    though it is active and valid on the lock.
+    """
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    entries = asyncio.run(_run_get_passcodes(key))
+    if not entries:
+        typer.echo("no passcodes visible to this query")
+    for entry in entries:
+        label = _PWD_TYPE_LABELS.get(entry.pwd_type, entry.pwd_type.name)
+        typer.echo(f"  passcode={entry.passcode}  type={label}")
+        if entry.cyclic_schedule is not None:
+            sched = entry.cyclic_schedule
+            typer.echo(
+                f"    schedule: {sched.day_or_preset} "
+                f"{sched.start_hour:02d}:{sched.start_minute:02d}"
+                f"-{sched.end_hour:02d}:00 ({sched.duration_hours}h)"
+            )
+        elif entry.start_date is not None and entry.end_date is not None:
+            typer.echo(
+                f"    start={entry.start_date.isoformat(sep=' ')}  "
+                f"end={entry.end_date.isoformat(sep=' ')}"
+            )
+        elif entry.start_date is not None:
+            typer.echo(f"    permanent (start={entry.start_date.isoformat(sep=' ')})")
+    typer.echo(
+        "note: this list is not exhaustive - a passcode never added through "
+        "this library, and never yet used at the keypad, will not appear here."
+    )
+
+
 @app.command("get-auto-lock")
 def get_auto_lock(
     target: str = typer.Argument(..., help="lockId, alias, or MAC"),
@@ -411,6 +471,11 @@ async def _run_delete_passcode(key: VirtualKey, code: str) -> None:
 async def _run_clear_passcodes(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.clear_passcodes()
+
+
+async def _run_get_passcodes(key: VirtualKey) -> list[PasscodeEntry]:
+    async with TTLockClient(key) as c:
+        return await c.get_passcodes()
 
 
 async def _run_get_auto_lock(key: VirtualKey) -> int:

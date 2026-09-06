@@ -145,6 +145,7 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock add-passcode <lock> <code>` | Provision a keypad passcode (admin eKey required) |
 | `ttlock delete-passcode <lock> <code>` | Remove a keypad passcode (admin eKey required) |
 | `ttlock clear-passcodes <lock>` | Wipe ALL keypad passcodes — no undo (admin eKey required) |
+| `ttlock get-passcodes <lock>` | List keypad passcodes visible to this query — **not exhaustive**, see below (admin eKey required) |
 | `ttlock get-auto-lock <lock>` | Read the auto-lock delay in seconds (admin eKey required) |
 | `ttlock set-auto-lock <lock> <seconds>` | Set the auto-lock delay in seconds (admin eKey required) |
 | `ttlock get-auto-lock-limits <lock>` | Show the min/max auto-lock delay this lock accepts (admin eKey required) |
@@ -168,6 +169,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `get_auto_lock_limits()` | Min/max auto-lock delay this lock accepts (`AutoLockLimits`, admin eKey required) |
 | `get_fingerprints()` | Enrolled fingerprints (`list[FingerprintEntry]`, admin eKey required) — see its docstring: blind to cyclic (day/time) restrictions |
 | `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Manage keypad passcodes (admin eKey required) |
+| `get_passcodes()` | Keypad passcodes visible to this query (`list[PasscodeEntry]`, admin eKey required) — **not exhaustive**: a passcode never added through this library, and never yet used at the keypad, won't appear |
 | `get_operation_log()` | Paginated on-device operation log (`list[LogEntry]`) |
 | `set_lock_sound(enabled)` | Turn the keypad/lock beep on or off (admin eKey required) |
 | `set_lock_volume(level)` | Set the keypad/lock beep volume, 1-5 or `LockVolume` (admin eKey required; no-op on beeper-only hardware) |
@@ -190,7 +192,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 ### Models & enums
 
-- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `AutoLockLimits`, `FingerprintEntry`
+- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `AutoLockLimits`, `FingerprintEntry`, `PasscodeEntry`, `CyclicSchedule`
 - **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockVolume`, `LogOperate`, `PwdOperateType`
 - **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP)
 

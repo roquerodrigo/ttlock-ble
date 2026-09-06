@@ -35,6 +35,7 @@ from ttlock_ble.ble.constants import (
     TTL_SERVICE,
     TTL_WRITE,
 )
+from ttlock_ble.constants import KeyboardPwdType
 from ttlock_ble.crypto import aes_encrypt, hex_key_to_bytes
 from ttlock_ble.exceptions import TTLockError
 from ttlock_ble.protocol import Frame
@@ -59,6 +60,22 @@ def _resp_frame(key: VirtualKey, command: int, plain: bytes) -> Frame:
 
 def _status_plain(echo: int, status: int = cmd.RESPONSE_SUCCESS) -> bytes:
     return bytes([echo, status])
+
+
+def _passcode_item(*, pwd_type: int, new_pwd: bytes, pwd: bytes, trailer: bytes) -> bytes:
+    """Synthetic, structurally-derived item - see `commands.passcode_list`'s docstring."""
+    body = bytes([pwd_type, len(new_pwd)]) + new_pwd + bytes([len(pwd)]) + pwd + trailer
+    return bytes([len(body)]) + body
+
+
+def _passcode_list_plain(*, next_sequence: int, item: bytes = b"") -> bytes:
+    header = b"\x00\x00" + next_sequence.to_bytes(2, "big")  # header[0:2] purpose unconfirmed
+    return bytes([cmd.CMD_GET_PASSCODES, cmd.RESPONSE_SUCCESS]) + header + item
+
+
+def _real_passcode_plain(data_hex: str) -> bytes:
+    """Wrap a real captured `data` hex string (echo=0x07, status=SUCCESS) into a full plaintext."""
+    return bytes([cmd.CMD_GET_PASSCODES, cmd.RESPONSE_SUCCESS]) + bytes.fromhex(data_hex)
 
 
 class FakeGATTService:
@@ -431,6 +448,123 @@ class TestCommands:
             ),
         ]
         await client.clear_passcodes()
+
+    async def test_get_passcodes_full_real_capture(self, patched_connect) -> None:
+        """End-to-end regression test replaying an entire real capture session (11 pages).
+
+        Real hardware bytes, not synthetic - the same ones that disproved
+        the originally-assumed CIRCLE trailer layout; see
+        `commands.passcode_list._decode_cyclic_schedule`'s docstring.
+        """
+        client, fake, key = await self._connected(patched_connect)
+        pages = [
+            "002000011d0308313939303731383008313939303731383000010100001b09061100",
+            "001f00021c040935323839353833353909353238393538333539000101110004c0",
+            "001f00031c04093335383230333139350933353832303331393500010111000400",
+            "001f00041c040934363539333333353309343635393333333533000101110003e8",
+            "001f00051c040937303235373538363709373032353735383637000101110004a8",
+            "001f00061c04093636383230353130320936363832303531303200010111000430",
+            "001f00071c04093439383133383331340934393831333833313400010110000419",
+            "001f00081c04093430383634393633320934303836343936333200010111000449",
+            "001f00091c0409363837353438353136093638373534383531360001010a0003f1",
+            "001b015018010836303932303534390836303932303534390001010000",
+            "0000",
+        ]
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            *(_resp_frame(key, cmd.CMD_GET_PASSCODES, _real_passcode_plain(p)) for p in pages),
+        ]
+        entries = await client.get_passcodes()
+        assert len(entries) == 10
+        assert entries[0].passcode == "19907180"
+        assert entries[0].pwd_type == KeyboardPwdType.PERIOD
+        assert entries[0].start_date == dt.datetime(2000, 1, 1, 0, 0)  # noqa: DTZ001 -- lock RTC is naive
+        assert entries[0].end_date == dt.datetime(2027, 9, 6, 17, 0)  # noqa: DTZ001 -- lock RTC is naive
+        cyclic_days = [e.cyclic_schedule.day_or_preset for e in entries[1:9] if e.cyclic_schedule]
+        assert cyclic_days == [
+            "Sunday",
+            "Daily",
+            "Weekend",
+            "Saturday",
+            "Monday",
+            "Workdays",
+            "Tuesday",
+            "Weekend",
+        ]
+        assert entries[9].passcode == "60920549"
+        assert entries[9].is_permanent
+
+    async def test_get_passcodes_empty(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_GET_PASSCODES, _passcode_list_plain(next_sequence=0)),
+        ]
+        assert await client.get_passcodes() == []
+
+    async def test_get_passcodes_admin_check_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.get_passcodes()
+
+    async def test_get_passcodes_rejected_mid_scan_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        permanent_item = _passcode_item(
+            pwd_type=int(KeyboardPwdType.PERMANENT),
+            new_pwd=b"1234",
+            pwd=b"1234",
+            trailer=bytes([0x00, 0x01, 0x01, 0x00, 0x00]),
+        )
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key,
+                cmd.CMD_GET_PASSCODES,
+                _passcode_list_plain(next_sequence=1, item=permanent_item),
+            ),
+            _resp_frame(
+                key,
+                cmd.CMD_GET_PASSCODES,
+                _status_plain(cmd.CMD_GET_PASSCODES, cmd.RESPONSE_FAILED),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to get_passcodes"):
+            await client.get_passcodes()
+
+    async def test_get_passcodes_exceeds_safety_cap_raises(
+        self, patched_connect, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(client_mod, "_MAX_PASSCODE_ENTRIES", 2)
+        client, fake, key = await self._connected(patched_connect)
+        item = _passcode_item(
+            pwd_type=int(KeyboardPwdType.PERMANENT),
+            new_pwd=b"1234",
+            pwd=b"1234",
+            trailer=bytes([0x00, 0x01, 0x01, 0x00, 0x00]),
+        )
+        # next_sequence never reaches 0 - forces the safety cap to trip.
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(
+                key, cmd.CMD_GET_PASSCODES, _passcode_list_plain(next_sequence=1, item=item)
+            ),
+            _resp_frame(
+                key, cmd.CMD_GET_PASSCODES, _passcode_list_plain(next_sequence=2, item=item)
+            ),
+        ]
+        with pytest.raises(TTLockError, match="exceeded safety cap"):
+            await client.get_passcodes()
 
     async def test_get_auto_lock_time(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
