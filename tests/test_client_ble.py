@@ -450,12 +450,7 @@ class TestCommands:
         await client.clear_passcodes()
 
     async def test_get_passcodes_full_real_capture(self, patched_connect) -> None:
-        """End-to-end regression test replaying an entire real capture session (11 pages).
-
-        Real hardware bytes, not synthetic - the same ones that disproved
-        the originally-assumed CIRCLE trailer layout; see
-        `commands.passcode_list._decode_cyclic_schedule`'s docstring.
-        """
+        """End-to-end regression test replaying an entire real capture session (11 pages)."""
         client, fake, key = await self._connected(patched_connect)
         pages = [
             "002000011d0308313939303731383008313939303731383000010100001b09061100",

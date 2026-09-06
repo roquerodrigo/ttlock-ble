@@ -48,9 +48,7 @@ log: logging.Logger = logging.getLogger("ttlock_ble.client")
 
 # No confirmed lock enrols anywhere near this many; see `get_fingerprints`.
 _MAX_FINGERPRINT_ENTRIES = 50
-# Guards `get_passcodes` against looping forever if the lock's own
-# next_sequence cursor never reaches 0 - no confirmed lock has anywhere
-# near this many passcodes.
+# No confirmed lock holds anywhere near this many; see `get_passcodes`.
 _MAX_PASSCODE_ENTRIES = 50
 
 

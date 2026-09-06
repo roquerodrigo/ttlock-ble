@@ -9,15 +9,15 @@ Wire layout of one SUCCESS response's data:
     [0:4]   header - `header[2:4]` is `next_sequence` (big-endian), fed
             back as the next request's sequence number; `header[0:2]`'s
             meaning is unconfirmed.
-    [4]     item_len - read but not used: every field after it is already
-            self-length-prefixed, so nothing here depends on its value.
+    [4]     item_length - read but not used: every field after it is
+            already self-length-prefixed, so nothing here depends on it.
     [5]     pwd_type (`KeyboardPwdType`)
-    [6]     new_pwd_len
+    [6]     new_pwd_length
     [7:...] new_pwd (ASCII digits)
-    [...]   pwd_len
+    [...]   pwd_length
     [...]   pwd (ASCII digits)
     [...]   trailer - length and structure depend on `pwd_type`, see
-            `_TRAILER_LEN` and `parse_passcode_list_response`.
+            `_TRAILER_LENGTH_BY_TYPE` and `parse_passcode_list_response`.
 
 End of list: confirmed on real hardware as a bare 2-byte `0000` response -
 too short to even carry a full 4-byte header, let alone an item. A
@@ -37,33 +37,27 @@ from .envelope import RESPONSE_SUCCESS, parse_response_status
 if TYPE_CHECKING:
     import datetime as dt
 
-_HEADER_LEN = 4
-_MIN_ITEM_LEN = 4  # item_len + pwd_type + new_pwd_len + pwd_len, before either code's digits
+_HEADER_LENGTH = 4
+_MINIMUM_ITEM_LENGTH = 4  # item_length + pwd_type + new_pwd_length + pwd_length, no digits
 
-_TRAILER_LEN = {
+_TRAILER_LENGTH_BY_TYPE = {
     KeyboardPwdType.PERMANENT: 5,  # [start_date: 5], always the sentinel in every example seen
     KeyboardPwdType.PERIOD: 10,  # [start_date: 5][end_date: 5]
     KeyboardPwdType.CIRCLE: 7,  # [date sentinel: 3][start_hour][start_minute][?][low_byte]
 }
 
-# Confirmed BASE_SELECTOR values (see `CyclicSchedule` for what's actually
-# verified on real hardware versus formula-predicted). Individual days
-# follow `(iso_weekday + 1) * 24`, Monday=1..Sunday=7; Daily/Workdays share
-# that formula with index 0/1; Weekend is a fixed, non-formula constant.
-#
-# There is no separate wire byte for this value - real captures disproved
-# that assumption (trailer[5] does not hold it; see
-# `parse_passcode_list_response`'s docstring). BASE_SELECTOR only exists
-# as a derived quantity: the largest one of these <= the wire's low_byte,
-# with the remainder being `duration_hours - 1`.
+# Individual days follow `(iso_weekday + 1) * 24`, Monday=1..Sunday=7; Daily
+# and Workdays share that formula with index 0/1; Weekend is a fixed constant.
+# The selector is not a wire byte of its own: it is the largest value here
+# that is <= the trailer's low_byte, the remainder being `duration_hours - 1`.
 _CYCLIC_BASE_SELECTORS = {
     0: "Daily",
     24: "Workdays",
     48: "Monday",
     72: "Tuesday",
-    96: "Wednesday",  # formula-predicted, not independently confirmed on real hardware
-    120: "Thursday",  # formula-predicted, not independently confirmed on real hardware
-    144: "Friday",  # formula-predicted, not independently confirmed on real hardware
+    96: "Wednesday",  # formula-predicted, not confirmed on real hardware
+    120: "Thursday",  # formula-predicted, not confirmed on real hardware
+    144: "Friday",  # formula-predicted, not confirmed on real hardware
     168: "Saturday",
     192: "Sunday",
     232: "Weekend",
@@ -96,11 +90,8 @@ def _decode_cyclic_schedule(trailer: bytes) -> CyclicSchedule:
     that is too thin a pattern to name or rely on, so it is deliberately
     left undecoded here.
 
-    `trailer[6]` (`low_byte`) is the *only* place BASE_SELECTOR and
-    duration are encoded - see `_CYCLIC_BASE_SELECTORS`. The originally
-    assumed separate `base_selector` wire byte does not exist; this was
-    corrected against real hardware captures that a literal per-field
-    reading of `low_byte` alone could not otherwise explain.
+    `trailer[6]` (`low_byte`) is the only place the base selector and the
+    duration are encoded - see `_CYCLIC_BASE_SELECTORS`.
     """
     low_byte = trailer[6]
     base_selector = next(base for base in _CYCLIC_BASES_DESCENDING if base <= low_byte)
@@ -136,37 +127,36 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[PasscodeEntry | None
     _cmd_echo, status, data = parse_response_status(plaintext)
     if status != RESPONSE_SUCCESS:
         raise RuntimeError(f"passcode list FAILED: status={status:#x} err={data.hex()}")
-    if len(data) < _HEADER_LEN:
+    if len(data) < _HEADER_LENGTH:
         return None, 0
     next_sequence = int.from_bytes(data[2:4], "big")
-    rest = data[_HEADER_LEN:]
-    if len(rest) < _MIN_ITEM_LEN:
+    item = data[_HEADER_LENGTH:]
+    if len(item) < _MINIMUM_ITEM_LENGTH:
         return None, next_sequence
 
-    idx = 1  # rest[0] is item_len - see the module docstring
-    pwd_type_raw = rest[idx]
-    idx += 1
+    raw_pwd_type = item[1]
     try:
-        pwd_type = KeyboardPwdType(pwd_type_raw)
+        pwd_type = KeyboardPwdType(raw_pwd_type)
     except ValueError as error:
         raise ValueError(
-            f"passcode list unknown pwd_type={pwd_type_raw}: {plaintext.hex()}"
+            f"passcode list unknown pwd_type={raw_pwd_type}: {plaintext.hex()}"
         ) from error
-    new_pwd_len = rest[idx]
-    idx += 1
-    new_pwd = rest[idx : idx + new_pwd_len]
-    idx += new_pwd_len
-    pwd_len = rest[idx]
-    idx += 1
-    idx += pwd_len  # pwd itself is skipped - passcode exposes new_pwd, see PasscodeEntry
+    new_pwd_length = item[2]
+    new_pwd = item[3 : 3 + new_pwd_length]
+    pwd_length_offset = 3 + new_pwd_length
+    if pwd_length_offset >= len(item):
+        raise ValueError(f"passcode list payload too short for its passcode: {plaintext.hex()}")
+    pwd_length = item[pwd_length_offset]
+    # `pwd` itself is skipped: `passcode` exposes `new_pwd`, see `PasscodeEntry`.
+    trailer_offset = pwd_length_offset + 1 + pwd_length
 
-    trailer_len = _TRAILER_LEN.get(pwd_type)
-    if trailer_len is None:
+    trailer_length = _TRAILER_LENGTH_BY_TYPE.get(pwd_type)
+    if trailer_length is None:
         raise ValueError(
             f"passcode list pwd_type={pwd_type.name} has no confirmed layout: {plaintext.hex()}"
         )
-    trailer = rest[idx : idx + trailer_len]
-    if len(trailer) < trailer_len:
+    trailer = item[trailer_offset : trailer_offset + trailer_length]
+    if len(trailer) < trailer_length:
         raise ValueError(f"passcode list payload too short for its trailer: {plaintext.hex()}")
 
     start_date: dt.datetime | None = None

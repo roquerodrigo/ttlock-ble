@@ -33,14 +33,9 @@ if TYPE_CHECKING:
 app = typer.Typer(add_completion=False, help="DLock-XP / TTLock BLE control")
 KEY_STORE = Path(os.environ.get("TTLOCK_KEY_STORE", "~/.ttlock/keys.json")).expanduser()
 
-# Matches the official TTLock app's own displayed type name for PERMANENT
-# and PERIOD ("Custom" - confirmed via the app's own passcode-info screen,
-# not a generic SDK term), and matches this codebase's own established
-# terminology for CIRCLE (CyclicSchedule, _decode_cyclic_schedule) rather
-# than introducing a third, unused synonym. COUNT is deliberately left
-# out: `get_passcodes` can't decode it (no confirmed trailer layout), so
-# no entry with that type can ever reach this display.
-_PWD_TYPE_LABELS = {
+# "custom" is the official app's own label for PERIOD; COUNT has no confirmed
+# trailer layout, so `get_passcodes` never yields it.
+_PASSCODE_TYPE_LABELS = {
     KeyboardPwdType.PERMANENT: "permanent",
     KeyboardPwdType.PERIOD: "custom",
     KeyboardPwdType.CIRCLE: "cyclic",
@@ -336,14 +331,14 @@ def get_passcodes(
     if not entries:
         typer.echo("no passcodes visible to this query")
     for entry in entries:
-        label = _PWD_TYPE_LABELS.get(entry.pwd_type, entry.pwd_type.name)
+        label = _PASSCODE_TYPE_LABELS.get(entry.pwd_type, entry.pwd_type.name)
         typer.echo(f"  passcode={entry.passcode}  type={label}")
         if entry.cyclic_schedule is not None:
-            sched = entry.cyclic_schedule
+            schedule = entry.cyclic_schedule
             typer.echo(
-                f"    schedule: {sched.day_or_preset} "
-                f"{sched.start_hour:02d}:{sched.start_minute:02d}"
-                f"-{sched.end_hour:02d}:00 ({sched.duration_hours}h)"
+                f"    schedule: {schedule.day_or_preset} "
+                f"{schedule.start_hour:02d}:{schedule.start_minute:02d}"
+                f"-{schedule.end_hour:02d}:00 ({schedule.duration_hours}h)"
             )
         elif entry.start_date is not None and entry.end_date is not None:
             typer.echo(

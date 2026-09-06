@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import datetime as dt
-import inspect
 from typing import TYPE_CHECKING
 
 import pytest
 
 from ttlock_ble import commands as cmd
-from ttlock_ble.commands import log_record, passcode_list
+from ttlock_ble.commands import log_record
 from ttlock_ble.constants import KeyboardPwdType, LockState, LockVolume
 from ttlock_ble.models import CyclicSchedule
 
@@ -393,18 +392,11 @@ def _real_plain(data_hex: str) -> bytes:
 class TestPasscodeList:
     """The happy-path fixtures below are real CMD 0x07 captures from a physical
     lock, pasted verbatim as `data_hex` (the `data` portion of a SUCCESS
-    response, after cmd_echo/status).
-
-    These are what disproved the originally-assumed CIRCLE trailer layout
-    (a literal `base_selector` wire byte) - see
-    `commands.passcode_list._decode_cyclic_schedule`'s docstring for what
-    changed and why. Error-path tests further down remain synthetic, since
-    no real capture exercises a malformed response.
+    response, after cmd_echo/status). Error-path tests further down remain
+    synthetic, since no real capture exercises a malformed response.
     """
 
     def test_period_entry(self) -> None:
-        # PERIOD is what the TTLock app itself labels "Custom" - see cli.py's
-        # `_PWD_TYPE_LABELS`.
         plain = _real_plain("002000011d0308313939303731383008313939303731383000010100001b09061100")
         entry, next_seq = cmd.parse_passcode_list_response(plain)
         assert entry is not None
@@ -660,17 +652,11 @@ class TestPasscodeList:
         with pytest.raises(ValueError, match="not a valid date"):
             cmd.parse_passcode_list_response(_passcode_response(next_sequence=0, item=item))
 
-    def test_wednesday_thursday_friday_never_claimed_confirmed_in_source(self) -> None:
-        """The three formula-predicted days must stay flagged as such, not confirmed."""
-        src = inspect.getsource(passcode_list)
-        for day in ("Wednesday", "Thursday", "Friday"):
-            marked_lines = [line for line in src.splitlines() if f'"{day}"' in line]
-            assert marked_lines, f"expected to find {day} in commands/passcode_list.py"
-            for line in marked_lines:
-                assert "formula-predicted" in line, (
-                    f"{day}'s BASE_SELECTOR entry must stay flagged as "
-                    f"formula-predicted, not silently claimed confirmed: {line!r}"
-                )
+    def test_new_pwd_length_past_the_payload_raises(self) -> None:
+        # [item_length][pwd_type][new_pwd_length=9] followed by a single digit.
+        item = bytes([0x04, int(KeyboardPwdType.PERMANENT), 0x09]) + b"1"
+        with pytest.raises(ValueError, match="too short for its passcode"):
+            cmd.parse_passcode_list_response(_passcode_response(next_sequence=0, item=item))
 
 
 def _log_frame_plain(records: list[bytes], sequence: int) -> bytes:
