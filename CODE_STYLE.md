@@ -42,6 +42,20 @@ committing — all three must exit cleanly. `uv run pytest` follows.
   (`ble`, `commands`, `constants`, `exceptions`, `models`, `protocol`).
 - Private attributes / functions are prefixed with `_`.
 
+## Ordering protocol identifiers
+
+Any list of numeric protocol identifiers is written in **ascending numeric
+order**: opcode constants (`commands/opcodes.py`), `IntEnum` members
+(`LogOperate`, `LockFeature`, …), the record-type buckets in
+`commands/log_record.py`, and test parametrizations keyed by such an id.
+Sort by value, not by name and not by the order the upstream Java source
+happens to use — a reader looking up `0x36` or record type `64` should find
+it by scanning down. When a mapping groups several ids under one entry, sort
+the ids inside the group and order the groups by their lowest id.
+
+Constants that are not identifiers — header lengths, byte offsets, timeouts,
+sentinels — stay grouped by concern instead.
+
 ## Typing
 
 **Strict typing. No `Any`, no bare collection generics.** Mypy enforces this.

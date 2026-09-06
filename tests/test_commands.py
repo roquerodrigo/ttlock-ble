@@ -847,12 +847,14 @@ class TestLogRecordTruncatedTails:
         ("record_type", "tail"),
         [
             (1, (7).to_bytes(4, "big")),
-            (37, (1).to_bytes(4, "big") + (2).to_bytes(4, "big")),
+            (4, b""),
+            (4, bytes([9]) + b"12"),
             (8, bytes([26, 5, 11, 14])),
             (15, b""),
+            (19, bytes([1, 2, 3])),
             (20, bytes([1, 2, 3])),
             (30, b""),
-            (19, bytes([1, 2, 3])),
+            (37, (1).to_bytes(4, "big") + (2).to_bytes(4, "big")),
             (55, bytes([1, 2, 3])),
             (56, bytes([1, 2, 3])),
             (57, bytes([1])),
@@ -860,8 +862,6 @@ class TestLogRecordTruncatedTails:
             (93, b""),
             (93, bytes([9]) + b"12"),
             (94, bytes([1, 2, 3])),
-            (4, b""),
-            (4, bytes([9]) + b"12"),
         ],
     )
     def test_short_tail_leaves_optional_fields_unset(self, record_type: int, tail: bytes) -> None:

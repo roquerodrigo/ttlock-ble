@@ -174,19 +174,20 @@ def _decode_added_passcode(payload: bytes) -> _RecordTail:
 
 
 # Record-type buckets from the switch in `CommandUtil_V3.parseOperateLog`
-# (TTLock Android SDK). Keeping these as bare ints (rather than
-# `LogOperate.X.value`) keeps the cross-reference to the Java cases legible;
-# the buckets are disjoint, which is what lets the switch become a lookup.
+# (TTLock Android SDK), ordered by their lowest record type. Keeping these as
+# bare ints (rather than `LogOperate.X.value`) keeps the cross-reference to
+# the Java cases legible; the buckets are disjoint, which is what lets the
+# switch become a lookup.
 _TAIL_DECODERS_BY_BUCKET: tuple[tuple[frozenset[int], _TailDecoder], ...] = (
     (frozenset({1, 26, 28, 41, 52, 75, 76, 77}), _decode_app_uid_record_id),
-    (frozenset({37}), _decode_remote_control_key),
     (frozenset({4, 5, 6, 9, 10, 11, 12, 13, 34, 38, 78, 92}), _decode_passcode_pair),
     (frozenset({7}), _decode_passcode_only),
     (frozenset({8}), _decode_clear_all_passcodes),
     (frozenset({15, 17, 18, 25, 35, 39, 51, 74, 80, 91}), _decode_card_number),
+    (frozenset({19}), _decode_mac_only),
     (frozenset({20, 21, 22, 23, 33, 40, 79}), _decode_six_byte_id),
     (frozenset({30, 31}), _decode_accessory_battery),
-    (frozenset({19}), _decode_mac_only),
+    (frozenset({37}), _decode_remote_control_key),
     (frozenset({55, 82}), _decode_key_fob),
     (frozenset({56}), _decode_wireless_keypad),
     (frozenset({57, 58, 61, 62}), _decode_short_id),
