@@ -68,7 +68,7 @@ dev = [
     "ttlock-ble[cli]",
 ]
 lint = [
-    "ruff==0.16.6",
+    "ruff==0.16.7",
     "mypy==2.3.1",
 ]
 
