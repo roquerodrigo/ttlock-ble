@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.2...v0.3.3) (2026-09-15)
+
+
+### Development Dependencies
+
+* **deps-dev:** bump ruff in the python-deps group ([a1e9c8d](https://github.com/roquerodrigo/ttlock-ble/commit/a1e9c8dce6bb13c3d9e43ad9b7b7b6d13ed77c24))
+
 ## [0.3.2](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.1...v0.3.2) (2026-09-06)
 
 
