@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .auto_lock_limits import AutoLockLimits
+from .card_entry import CardEntry
 from .cloud_credentials import CloudCredentials
 from .cyclic_schedule import CyclicSchedule
 from .device_features import DeviceFeatures
@@ -20,6 +21,7 @@ from .virtual_key import VirtualKey
 
 __all__ = [
     "AutoLockLimits",
+    "CardEntry",
     "CloudCredentials",
     "CyclicSchedule",
     "DeviceFeatures",

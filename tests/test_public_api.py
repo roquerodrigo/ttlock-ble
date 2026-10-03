@@ -16,6 +16,7 @@ EXPECTED_EXPORTS = frozenset(
     {
         "AutoLockLimits",
         "AutoLockOperate",
+        "CardEntry",
         "CloudError",
         "CyclicSchedule",
         "DeviceFeatures",
@@ -54,6 +55,7 @@ EXPECTED_CLIENT_MEMBERS = frozenset(
         "from_ble_device",
         "get_auto_lock_limits",
         "get_auto_lock_time",
+        "get_cards",
         "get_device_features",
         "get_device_info",
         "get_fingerprints",

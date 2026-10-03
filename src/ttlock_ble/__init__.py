@@ -15,6 +15,7 @@ Public API:
     DeviceProperties  — 6 confirmed TTLock-proprietary device properties
     AutoLockLimits    — the lock's own min/max allowed auto-lock delay
     FingerprintEntry  — one enrolled fingerprint (see get_fingerprints's caveat)
+    CardEntry         — one enrolled IC card/tag (see get_cards's caveat)
     PasscodeEntry     — one keypad passcode (see get_passcodes's scope caveat)
     CyclicSchedule    — the day-of-week/time-window rule behind a CIRCLE passcode
     TTLockError       — raised by `TTLockClient` on BLE / protocol failure
@@ -41,6 +42,7 @@ from .constants import (
 from .exceptions import CloudError, TTLockError
 from .models import (
     AutoLockLimits,
+    CardEntry,
     CyclicSchedule,
     DeviceFeatures,
     DeviceInfo,
@@ -59,6 +61,7 @@ from .models import (
 __all__ = [
     "AutoLockLimits",
     "AutoLockOperate",
+    "CardEntry",
     "CloudError",
     "CyclicSchedule",
     "DeviceFeatures",
