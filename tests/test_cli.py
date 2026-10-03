@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 from tests.conftest import make_virtual_key
 from ttlock_ble import (
     AutoLockLimits,
+    CardEntry,
     CyclicSchedule,
     DeviceFeatures,
     DeviceInfo,
@@ -591,3 +592,40 @@ class TestBleCommands:
         result = runner.invoke(cli_module.app, ["get-fingerprints", "2"])
         assert result.exit_code == 0, result.output
         assert "no fingerprints enrolled" in result.output
+
+    def test_get_cards(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_cards = AsyncMock(
+            return_value=[
+                CardEntry(
+                    card_id=bytes([0x11, 0x22, 0x33, 0x44]),
+                    start_date=dt.datetime(2026, 3, 1, 8, 0),  # noqa: DTZ001
+                    end_date=None,
+                ),
+                CardEntry(
+                    card_id=bytes([0x11, 0x22, 0x33, 0x45]),
+                    start_date=None,
+                    end_date=dt.datetime(2026, 12, 31, 23, 59),  # noqa: DTZ001
+                ),
+            ]
+        )
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-cards", "2", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "id=11223344" in result.output
+        assert "end=permanent" in result.output
+        assert "id=11223345" in result.output
+        assert "start=not set" in result.output
+        assert "cyclic" in result.output
+
+    def test_get_cards_empty(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_cards = AsyncMock(return_value=[])
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-cards", "2"])
+        assert result.exit_code == 0, result.output
+        assert "no cards enrolled" in result.output

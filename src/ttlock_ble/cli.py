@@ -1,4 +1,4 @@
-"""Typer-powered `ttlock` CLI: locks, state, sound, device info, passcodes, fingerprints."""
+"""Typer-powered `ttlock` CLI: locks, state, sound, device info, passcodes, fingerprints, cards."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from .constants import KeyboardPwdType, LockVolume
 from .exceptions import CloudError
 from .models import (
     AutoLockLimits,
+    CardEntry,
     DeviceFeatures,
     DeviceInfo,
     DeviceProperties,
@@ -457,6 +458,28 @@ def get_fingerprints(
     )
 
 
+@app.command("get-cards")
+def get_cards(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """List enrolled IC cards/tags (requires an admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    entries = asyncio.run(_run_get_cards(key))
+    if not entries:
+        typer.echo("no cards enrolled")
+    for entry in entries:
+        start = "not set" if entry.start_date is None else entry.start_date.isoformat(sep=" ")
+        end = "permanent" if entry.end_date is None else entry.end_date.isoformat(sep=" ")
+        typer.echo(f"  id={entry.card_id.hex()}  start={start}  end={end}")
+    typer.echo(
+        "note: this cannot detect cyclic (day-of-week/time-range) restrictions - "
+        "a card above may still be limited to specific days/hours."
+    )
+
+
 async def _run_unlock(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.unlock()
@@ -540,6 +563,11 @@ async def _run_get_auto_lock_limits(key: VirtualKey) -> AutoLockLimits:
 async def _run_get_fingerprints(key: VirtualKey) -> list[FingerprintEntry]:
     async with TTLockClient(key) as c:
         return await c.get_fingerprints()
+
+
+async def _run_get_cards(key: VirtualKey) -> list[CardEntry]:
+    async with TTLockClient(key) as c:
+        return await c.get_cards()
 
 
 if (
