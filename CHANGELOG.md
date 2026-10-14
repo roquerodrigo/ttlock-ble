@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.2...v0.3.3) (2026-10-14)
+
+
+### Miscellaneous Chores
+
+* **release:** keep only user-facing changes in the changelog ([8025f57](https://github.com/roquerodrigo/ttlock-ble/commit/8025f57cebc7de63a66035fd19e1efb042d0208f))
+
 ## [0.3.2](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.1...v0.3.2) (2026-09-06)
 
 
