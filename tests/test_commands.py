@@ -109,6 +109,10 @@ class TestPayloadBuilders:
         assert cmd.payload_fingerprint_list(0) == bytes([0x06, 0x00, 0x00])
         assert cmd.payload_fingerprint_list(300) == bytes([0x06, 0x01, 0x2C])
 
+    def test_card_list_layout(self) -> None:
+        assert cmd.payload_card_list(0) == bytes([0x01, 0x00, 0x00])
+        assert cmd.payload_card_list(300) == bytes([0x01, 0x01, 0x2C])
+
 
 class TestParsers:
     def test_response_status_too_short(self) -> None:
@@ -344,6 +348,119 @@ class TestFingerprintList:
 
         assert decode_date5(cmd.START_DATE_SENTINEL) == dt.datetime(2000, 1, 1, 0, 0)  # noqa: DTZ001
         assert decode_date5(cmd.END_DATE_SENTINEL) == dt.datetime(2099, 1, 1, 0, 0)  # noqa: DTZ001
+
+
+def _card_response(*, position: int, card_id: bytes, start: bytes, end: bytes) -> bytes:
+    """Build a full CMD 0x05/0x01 SUCCESS response matching the confirmed wire layout."""
+    data = bytes([0x64, 0x01]) + position.to_bytes(2, "big") + card_id + start + end
+    return bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS]) + data
+
+
+class TestCardList:
+    """Byte layouts below mirror real hardware captures, with the real card id
+    (a cloneable credential) replaced by a synthetic one of the same length.
+    """
+
+    def test_end_of_list_returns_none(self) -> None:
+        # Real capture of the end-of-list marker following a lock's one
+        # enrolled card: SUCCESS status, data = [battery][op_echo=0x01]
+        # [0xFF][0xFF] (`55 01 ff ff`). The same marker at index 0 (zero
+        # enrolled cards) is also confirmed on hardware - see
+        # test_get_cards_empty_list.
+        plain = bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS, 0x55, 0x01, 0xFF, 0xFF])
+        assert cmd.parse_card_list_response(plain) is None
+
+    def test_end_of_list_ignores_the_battery_value(self) -> None:
+        plain = bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS, 0x00, 0x01, 0xFF, 0xFF])
+        assert cmd.parse_card_list_response(plain) is None
+
+    def test_permanent_entry(self) -> None:
+        # Mirrors a real capture of a permanent card, with the card id
+        # replaced by a synthetic value.
+        plain = _card_response(
+            position=1,
+            card_id=bytes([0x11, 0x22, 0x33, 0x44]),
+            start=cmd.START_DATE_SENTINEL,
+            end=cmd.END_DATE_SENTINEL,
+        )
+        entry = cmd.parse_card_list_response(plain)
+        assert entry is not None
+        assert entry.card_id == bytes([0x11, 0x22, 0x33, 0x44])
+        assert entry.start_date is None
+        assert entry.end_date is None
+        assert entry.is_permanent
+        assert not entry.has_explicit_start
+
+    def test_timed_entry_with_sentinel_start(self) -> None:
+        # Mirrors a real capture of a timed card (dated end 2029-09-29
+        # 20:42), with the card id replaced by a synthetic value.
+        plain = _card_response(
+            position=1,
+            card_id=bytes([0x11, 0x22, 0x33, 0x44]),
+            start=cmd.START_DATE_SENTINEL,
+            end=bytes([0x1D, 0x09, 0x1D, 0x14, 0x2A]),
+        )
+        entry = cmd.parse_card_list_response(plain)
+        assert entry is not None
+        assert entry.start_date is None
+        assert entry.end_date == dt.datetime(2029, 9, 29, 20, 42)  # noqa: DTZ001
+        assert not entry.is_permanent
+        assert not entry.has_explicit_start
+
+    def test_entry_position_does_not_leak_into_card_id(self) -> None:
+        # Regression: mirrors the equivalent fingerprint guard against reading
+        # the layout without the leading battery byte.
+        plain = _card_response(
+            position=7,
+            card_id=bytes([0xAA, 0xBB, 0xCC, 0xDD]),
+            start=cmd.START_DATE_SENTINEL,
+            end=cmd.END_DATE_SENTINEL,
+        )
+        entry = cmd.parse_card_list_response(plain)
+        assert entry is not None
+        assert entry.card_id == bytes([0xAA, 0xBB, 0xCC, 0xDD])
+
+    def test_long_card_id_entry_is_not_hardware_confirmed(self) -> None:
+        # The 8-byte card_id path is derived from the official SDK's own
+        # length threshold, not from a real capture - see commands.card.
+        data = (
+            bytes([0x64, 0x01, 0x00, 0x01])
+            + bytes([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88])
+            + cmd.START_DATE_SENTINEL
+            + cmd.END_DATE_SENTINEL
+        )
+        assert len(data) == 22
+        plain = bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS]) + data
+        entry = cmd.parse_card_list_response(plain)
+        assert entry is not None
+        assert entry.card_id == bytes([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88])
+        assert entry.is_permanent
+
+    def test_failure_raises(self) -> None:
+        plain = bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_FAILED, 0x02])
+        with pytest.raises(RuntimeError, match="FAILED"):
+            cmd.parse_card_list_response(plain)
+
+    def test_short_success_payload_raises(self) -> None:
+        plain = bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS, 0x64, 0x01, 0x00])
+        with pytest.raises(ValueError, match="unexpected data length 3"):
+            cmd.parse_card_list_response(plain)
+
+    def test_sdk_literal_threshold_length_raises(self) -> None:
+        # Regression: 20 bytes is the SDK's own literal id+dates buffer
+        # threshold for picking the 8-byte card_id, but it is not a valid
+        # *total* `data` length in this module's framing (18 or 22) -
+        # this must still raise, not be silently accepted.
+        data = (
+            bytes([0x64, 0x01, 0x00, 0x01])
+            + bytes([0x11, 0x22, 0x33, 0x44, 0x55, 0x66])
+            + cmd.START_DATE_SENTINEL
+            + cmd.END_DATE_SENTINEL
+        )
+        assert len(data) == 20
+        plain = bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS]) + data
+        with pytest.raises(ValueError, match="unexpected data length 20"):
+            cmd.parse_card_list_response(plain)
 
 
 class TestDeviceFeature:

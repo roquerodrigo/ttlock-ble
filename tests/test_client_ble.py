@@ -889,6 +889,129 @@ class TestCommands:
         with pytest.raises(TTLockError, match="exceeded safety cap"):
             await client.get_fingerprints()
 
+    async def test_get_cards_mixed_permanent_and_timed(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        # Mirrors the real captures: a permanent card and a timed one, both
+        # with a synthetic card id substituted for the real one.
+        permanent = _card_entry_plain(
+            position=1,
+            card_id=bytes([0x11, 0x22, 0x33, 0x44]),
+            start=cmd.START_DATE_SENTINEL,
+            end=cmd.END_DATE_SENTINEL,
+        )
+        timed = _card_entry_plain(
+            position=2,
+            card_id=bytes([0x11, 0x22, 0x33, 0x45]),
+            start=cmd.START_DATE_SENTINEL,
+            end=bytes([29, 9, 29, 20, 42]),
+        )
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, permanent),
+            _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, timed),
+            _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, _CARD_END_OF_LIST),
+        ]
+
+        entries = await client.get_cards()
+
+        assert len(entries) == 2
+        first, second = entries
+
+        assert first.card_id == bytes([0x11, 0x22, 0x33, 0x44])
+        assert first.start_date is None
+        assert first.end_date is None
+        assert first.is_permanent
+
+        assert second.card_id == bytes([0x11, 0x22, 0x33, 0x45])
+        assert second.start_date is None
+        assert second.end_date == dt.datetime(2029, 9, 29, 20, 42)  # noqa: DTZ001
+        assert not second.is_permanent
+
+    async def test_get_cards_empty_list(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, _CARD_END_OF_LIST),
+        ]
+
+        entries = await client.get_cards()
+
+        assert entries == []
+
+    async def test_get_cards_end_of_list_matches_captured_hardware_bytes(
+        self, patched_connect
+    ) -> None:
+        # Real capture of the end-of-list marker following a lock's one
+        # enrolled card: data = `55 01 ff ff`. The same marker shape at
+        # index 0 (zero enrolled cards) is also confirmed on hardware -
+        # see test_get_cards_empty_list.
+        client, fake, key = await self._connected(patched_connect)
+        captured_plain = bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS]) + bytes.fromhex(
+            "5501ffff"
+        )
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, captured_plain),
+        ]
+
+        entries = await client.get_cards()
+
+        assert entries == []
+
+    async def test_get_cards_admin_check_rejected_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        fake.reply_for_next = [
+            _resp_frame(
+                key,
+                cmd.CMD_CHECK_ADMIN,
+                _status_plain(cmd.CMD_CHECK_ADMIN, cmd.RESPONSE_FAILED) + b"\xff",
+            )
+        ]
+        with pytest.raises(TTLockError, match="Failed to authorize as admin"):
+            await client.get_cards()
+
+    async def test_get_cards_rejected_mid_scan_raises(self, patched_connect) -> None:
+        client, fake, key = await self._connected(patched_connect)
+        first_entry = _card_entry_plain(
+            position=1,
+            card_id=bytes([0x11, 0x22, 0x33, 0x44]),
+            start=cmd.START_DATE_SENTINEL,
+            end=cmd.END_DATE_SENTINEL,
+        )
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, first_entry),
+            _resp_frame(
+                key,
+                cmd.CMD_MANAGE_IC_CARD,
+                bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_FAILED, 0x02]),
+            ),
+        ]
+        with pytest.raises(TTLockError, match="Failed to get_cards"):
+            await client.get_cards()
+
+    async def test_get_cards_exceeds_safety_cap_raises(self, patched_connect, monkeypatch) -> None:
+        monkeypatch.setattr(client_mod, "_MAX_CARD_ENTRIES", 2)
+        client, fake, key = await self._connected(patched_connect)
+        entry = _card_entry_plain(
+            position=1,
+            card_id=bytes([0x11, 0x22, 0x33, 0x44]),
+            start=cmd.START_DATE_SENTINEL,
+            end=cmd.END_DATE_SENTINEL,
+        )
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, entry),
+            _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, entry),
+        ]
+        with pytest.raises(TTLockError, match="exceeded safety cap"):
+            await client.get_cards()
+
     async def test_get_lock_sound_with_volume(self, patched_connect) -> None:
         # Layout from the SDK's audioManage parser: [battery][op=1][sound][volume].
         client, fake, key = await self._connected(patched_connect)
@@ -1535,3 +1658,19 @@ def _fingerprint_entry_plain(
 _FINGERPRINT_END_OF_LIST = bytes(
     [cmd.CMD_MANAGE_FINGERPRINT, cmd.RESPONSE_SUCCESS, 0x64, cmd.CMD_MANAGE_FINGERPRINT, 0xFF, 0xFF]
 )
+
+
+def _card_entry_plain(*, position: int, card_id: bytes, start: bytes, end: bytes) -> bytes:
+    """Build one CMD 0x05/0x01 SUCCESS response for a non-empty entry.
+
+    Matches the confirmed wire layout - see `parse_card_list_response`'s
+    docstring.
+    """
+    data = bytes([0x64, 0x01]) + position.to_bytes(2, "big") + card_id + start + end
+    return bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS]) + data
+
+
+# Real capture of the end-of-list marker following a lock's one enrolled
+# card: SUCCESS, data = `55 01 ff ff`. The same marker shape at index 0
+# (zero enrolled cards) is also confirmed on hardware.
+_CARD_END_OF_LIST = bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS, 0x55, 0x01, 0xFF, 0xFF])

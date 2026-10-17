@@ -8,6 +8,7 @@ from __future__ import annotations
 
 CMD_SEARCH_DEVICE_FEATURE = 0x01
 CMD_MANAGE_KEYBOARD_PASSWORD = 0x03
+CMD_MANAGE_IC_CARD = 0x05  # COMM_IC_MANAGE; only the list sub-op (0x01) is implemented
 CMD_MANAGE_FINGERPRINT = 0x06  # COMM_FR_MANAGE; only the list sub-op (0x06) is implemented
 CMD_GET_PASSCODES = 0x07  # COMM_PWD_LIST
 CMD_QUERY_STATE = 0x14

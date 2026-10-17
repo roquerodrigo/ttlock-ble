@@ -23,6 +23,7 @@ from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError
 from .models import (
     AutoLockLimits,
+    CardEntry,
     DeviceFeatures,
     DeviceInfo,
     DeviceProperties,
@@ -53,6 +54,7 @@ log: logging.Logger = logging.getLogger("ttlock_ble.client")
 # what any firmware can hold - see `get_fingerprints` and `get_passcodes`.
 _MAX_FINGERPRINT_ENTRIES = 300
 _MAX_PASSCODE_ENTRIES = 300
+_MAX_CARD_ENTRIES = 300
 
 
 class TTLockClient:
@@ -601,6 +603,59 @@ class TTLockClient:
         log.info("fetched %d fingerprint(s)", len(entries))
         return entries
 
+    async def get_cards(self) -> list[CardEntry]:
+        """Read every enrolled IC card (tag) via the confirmed indexed CMD 0x05/0x01 query.
+
+        Admin-gated - see `set_lock_sound`.
+
+        Loops the index from 0, one BLE round-trip per card, over a
+        single connection and a single admin handshake - mirrors
+        `get_fingerprints` exactly. Stops cleanly at the lock's own
+        end-of-list response. Raises `TTLockError` if the lock never
+        sends it within `_MAX_CARD_ENTRIES` queries, rather than
+        silently returning a possibly-incomplete list.
+
+        Known limitation: this cannot detect whether a card also has a
+        cyclic (day-of-week/time-range) restriction - that data lives in
+        a separate mechanism (CMD 0x70) this method doesn't query, and
+        that is not implemented anywhere in this library yet for any
+        credential type. A card returned here as permanent or timed may
+        in practice also be restricted to specific days/hours. Do not
+        treat the absence of that information as confirmation a card is
+        unrestricted.
+
+        The 4-byte `card_id` path, a multi-card listing (four cards,
+        mixing timed and permanent entries), the zero-card case and the
+        end-of-list response are all confirmed on hardware. Only the
+        8-byte `card_id` path is not - it is derived from the official
+        SDK's own length threshold only - see
+        `commands.card.parse_card_list_response` for how both are
+        decoded.
+        """
+        async with self._command_lock:
+            await self._admin_handshake()
+            entries: list[CardEntry] = []
+            for index in range(_MAX_CARD_ENTRIES):
+                resp = await self._transport.exchange(
+                    self._frame(cmd.CMD_MANAGE_IC_CARD, cmd.payload_card_list(index))
+                )
+                plain = self._decrypt_response(resp, "get_cards")
+                log.debug("card list response plaintext: %s", plain.hex())
+                try:
+                    entry = cmd.parse_card_list_response(plain)
+                except (RuntimeError, ValueError) as error:
+                    raise TTLockError(f"Failed to get_cards: {error}") from error
+                if entry is None:
+                    break
+                entries.append(entry)
+            else:
+                raise TTLockError(
+                    f"Failed to get_cards: exceeded safety cap of "
+                    f"{_MAX_CARD_ENTRIES} entries without an end-of-list response"
+                )
+        log.info("fetched %d card(s)", len(entries))
+        return entries
+
     async def get_lock_sound(self) -> LockSound:
         """Read whether the keypad/lock beep is on and, when reported, its volume.
 
@@ -925,6 +980,11 @@ class TTLockClient:
         the rejections above, this one is by design rather than
         confirmed via testing without the handshake - see its own
         docstring.
+
+        `get_cards` requires it too, confirmed by testing: an IC_SEARCH
+        query sent on a fresh connection without this handshake was
+        refused by the lock with a clean failure status, not a timeout
+        (tested on one lock model) - see its own docstring.
 
         Checks the admin password before touching the BLE link: it is
         `""` on a key that never carried one, and `payload_check_admin`
