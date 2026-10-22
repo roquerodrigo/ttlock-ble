@@ -478,11 +478,11 @@ class TTLockClient:
                     self._frame(cmd.CMD_GET_PASSCODES, cmd.payload_passcode_list(sequence))
                 )
                 plain = self._decrypt_response(resp, "get_passcodes")
-                log.debug("passcode list response plaintext: %s", plain.hex())
+                log.debug("passcode list response: length=%d", len(plain))
                 try:
                     entry, next_sequence = cmd.parse_passcode_list_response(plain)
                 except (RuntimeError, ValueError) as error:
-                    raise TTLockError(f"Failed to get_passcodes: {error}") from error
+                    raise TTLockError(f"Failed to get_passcodes: {error}") from None
                 if entry is not None:
                     entries.append(entry)
                 if next_sequence == 0:

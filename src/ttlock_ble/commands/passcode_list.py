@@ -78,11 +78,19 @@ def payload_passcode_list(sequence: int) -> bytes:
     return sequence.to_bytes(2, "big")
 
 
-def _decode_date_or_raise(raw: bytes, label: str, plaintext: bytes) -> dt.datetime:
+def _decode_date_or_raise(raw: bytes, label: str) -> dt.datetime:
     parsed = decode_date5(raw)
     if parsed is None:
-        raise ValueError(f"passcode list {label} not a valid date: {plaintext.hex()}")
+        raise ValueError(f"passcode list {label} not a valid date")
     return parsed
+
+
+def _decode_passcode(raw: bytes) -> str:
+    try:
+        return raw.decode("ascii")
+    except UnicodeDecodeError:
+        # UnicodeDecodeError retains the original credential in its object.
+        raise ValueError("passcode list passcode is not valid ASCII") from None
 
 
 def _decode_cyclic_schedule(trailer: bytes) -> CyclicSchedule:
@@ -126,8 +134,7 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[PasscodeEntry | None
     trailer layout (`COUNT`), is skipped rather than fatal: it comes back
     as `entry=None` with the real `next_sequence`, and a warning is
     logged, so one such passcode cannot hide every other one on the lock.
-    The warning names no byte of the item on purpose; the caller's debug
-    log of the plaintext is where the raw entry can be inspected.
+    Diagnostics describe structure only: the item contains working PINs.
     Each response carries a single item, so nothing after it depends on
     knowing that item's trailer.
 
@@ -135,9 +142,12 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[PasscodeEntry | None
     item its own length-prefixed fields describe runs past the end of
     the payload.
     """
+    if len(plaintext) < 2:
+        # The shared envelope parser includes raw bytes in its error message.
+        raise ValueError(f"response too short: length={len(plaintext)}")
     _cmd_echo, status, data = parse_response_status(plaintext)
     if status != RESPONSE_SUCCESS:
-        raise RuntimeError(f"passcode list FAILED: status={status:#x} err={data.hex()}")
+        raise RuntimeError(f"passcode list FAILED: status={status:#x} data_length={len(data)}")
     if len(data) < _HEADER_LENGTH:
         return None, 0
     next_sequence = int.from_bytes(data[2:4], "big")
@@ -155,27 +165,27 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[PasscodeEntry | None
     new_pwd = item[3 : 3 + new_pwd_length]
     pwd_length_offset = 3 + new_pwd_length
     if pwd_length_offset >= len(item):
-        raise ValueError(f"passcode list payload too short for its passcode: {plaintext.hex()}")
+        raise ValueError("passcode list payload too short for its passcode")
     pwd_length = item[pwd_length_offset]
     # `pwd` itself is skipped: `passcode` exposes `new_pwd`, see `PasscodeEntry`.
     trailer_offset = pwd_length_offset + 1 + pwd_length
     trailer = item[trailer_offset : trailer_offset + trailer_length]
     if len(trailer) < trailer_length:
-        raise ValueError(f"passcode list payload too short for its trailer: {plaintext.hex()}")
+        raise ValueError("passcode list payload too short for its trailer")
 
     start_date: dt.datetime | None = None
     end_date: dt.datetime | None = None
     cyclic_schedule: CyclicSchedule | None = None
     if pwd_type == KeyboardPwdType.PERMANENT:
-        start_date = _decode_date_or_raise(trailer[0:5], "start_date", plaintext)
+        start_date = _decode_date_or_raise(trailer[0:5], "start_date")
     elif pwd_type == KeyboardPwdType.PERIOD:
-        start_date = _decode_date_or_raise(trailer[0:5], "start_date", plaintext)
-        end_date = _decode_date_or_raise(trailer[5:10], "end_date", plaintext)
+        start_date = _decode_date_or_raise(trailer[0:5], "start_date")
+        end_date = _decode_date_or_raise(trailer[5:10], "end_date")
     else:
         cyclic_schedule = _decode_cyclic_schedule(trailer)
 
     entry = PasscodeEntry(
-        passcode=new_pwd.decode("ascii"),
+        passcode=_decode_passcode(new_pwd),
         pwd_type=pwd_type,
         start_date=start_date,
         end_date=end_date,
