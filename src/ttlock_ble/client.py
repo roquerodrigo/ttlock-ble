@@ -640,11 +640,11 @@ class TTLockClient:
                     self._frame(cmd.CMD_MANAGE_IC_CARD, cmd.payload_card_list(index))
                 )
                 plain = self._decrypt_response(resp, "get_cards")
-                log.debug("card list response plaintext: %s", plain.hex())
+                log.debug("card list response: length=%d", len(plain))
                 try:
                     entry = cmd.parse_card_list_response(plain)
                 except (RuntimeError, ValueError) as error:
-                    raise TTLockError(f"Failed to get_cards: {error}") from error
+                    raise TTLockError(f"Failed to get_cards: {error}") from None
                 if entry is None:
                     break
                 entries.append(entry)

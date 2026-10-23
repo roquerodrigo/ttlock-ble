@@ -80,7 +80,7 @@ def parse_card_list_response(plaintext: bytes) -> CardEntry | None:
     """
     _cmd_echo, status, data = parse_response_status(plaintext)
     if status != RESPONSE_SUCCESS:
-        raise RuntimeError(f"card list FAILED: status={status:#x} err={data.hex()}")
+        raise RuntimeError(f"card list FAILED: status={status:#x} data_length={len(data)}")
     if len(data) == _END_OF_LIST_DATA_LENGTH and data[1:] == _END_OF_LIST_TAIL:
         return None
     if len(data) == _LONG_ENTRY_DATA_LENGTH:
@@ -88,7 +88,7 @@ def parse_card_list_response(plaintext: bytes) -> CardEntry | None:
     elif len(data) == _SHORT_ENTRY_DATA_LENGTH:
         card_id_length = _SHORT_CARD_ID_LENGTH
     else:
-        raise ValueError(f"card list unexpected data length {len(data)}: {plaintext.hex()}")
+        raise ValueError(f"card list unexpected data length {len(data)}")
     card_id_end = 4 + card_id_length
     start_date_raw = data[card_id_end : card_id_end + 5]
     end_date_raw = data[card_id_end + 5 : card_id_end + 10]
