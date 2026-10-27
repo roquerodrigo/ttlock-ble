@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .auto_lock_limits import AutoLockLimits
 from .card_entry import CardEntry
+from .cloud_app import CLOUD_APPS, CloudApp
 from .cloud_credentials import CloudCredentials
 from .cyclic_schedule import CyclicSchedule
 from .device_features import DeviceFeatures
@@ -20,8 +21,10 @@ from .site_info import SiteInfo
 from .virtual_key import VirtualKey
 
 __all__ = [
+    "CLOUD_APPS",
     "AutoLockLimits",
     "CardEntry",
+    "CloudApp",
     "CloudCredentials",
     "CyclicSchedule",
     "DeviceFeatures",

@@ -19,8 +19,10 @@ from .cloud import TTLockCloud
 from .constants import KeyboardPwdType, LockVolume
 from .exceptions import CloudError
 from .models import (
+    CLOUD_APPS,
     AutoLockLimits,
     CardEntry,
+    CloudApp,
     DeviceFeatures,
     DeviceInfo,
     DeviceProperties,
@@ -72,13 +74,29 @@ def _resolve_key(target: str) -> VirtualKey:
     )
 
 
+def _resolve_cloud_app(name: str) -> CloudApp:
+    try:
+        return CLOUD_APPS[name]
+    except KeyError:
+        raise typer.BadParameter(
+            f"Unknown app '{name}'. Available: " + ", ".join(CLOUD_APPS)
+        ) from None
+
+
+_CLOUD_APP_OPTION_HELP = "TTLock-based app the account belongs to: " + ", ".join(CLOUD_APPS)
+
+
 @app.command()
-def sync(verbose: bool = typer.Option(False, "-v", help="HTTP debug logs")) -> None:
+def sync(
+    verbose: bool = typer.Option(False, "-v", help="HTTP debug logs"),
+    app_name: str = typer.Option("dlock_xp", "--app", help=_CLOUD_APP_OPTION_HELP),
+) -> None:
     """Log in to the TTLock cloud and cache the user's eKeys locally."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
+    cloud_app = _resolve_cloud_app(app_name)
     email, password = _load_env()
-    keys = asyncio.run(_run_sync(email, password))
+    keys = asyncio.run(_run_sync(cloud_app, email, password))
     KEY_STORE.parent.mkdir(parents=True, exist_ok=True)
     KEY_STORE.write_text(json.dumps([k.to_dict() for k in keys], indent=2))
     typer.echo(f"saved → {KEY_STORE}")
@@ -88,17 +106,19 @@ def sync(verbose: bool = typer.Option(False, "-v", help="HTTP debug logs")) -> N
 def verify(
     code: str = typer.Argument(..., help="Verification code from email/SMS"),
     verbose: bool = typer.Option(False, "-v"),
+    app_name: str = typer.Option("dlock_xp", "--app", help=_CLOUD_APP_OPTION_HELP),
 ) -> None:
     """Register this machine with TTLock using the verification code."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
+    cloud_app = _resolve_cloud_app(app_name)
     email, _ = _load_env()
-    asyncio.run(_run_verify(email, code))
+    asyncio.run(_run_verify(cloud_app, email, code))
     typer.echo("✓ device registered. Now run `ttlock sync`.")
 
 
-async def _run_sync(email: str, password: str) -> list[VirtualKey]:
-    async with TTLockCloud() as cloud:
+async def _run_sync(cloud_app: CloudApp, email: str, password: str) -> list[VirtualKey]:
+    async with TTLockCloud.for_app(cloud_app) as cloud:
         try:
             await cloud.discover_site()
         except CloudError as exc:
@@ -121,8 +141,8 @@ async def _run_sync(email: str, password: str) -> list[VirtualKey]:
         return keys
 
 
-async def _run_verify(email: str, code: str) -> None:
-    async with TTLockCloud() as cloud:
+async def _run_verify(cloud_app: CloudApp, email: str, code: str) -> None:
+    async with TTLockCloud.for_app(cloud_app) as cloud:
         with contextlib.suppress(CloudError):
             await cloud.discover_site()
         await cloud.validate_new_device(email, code)

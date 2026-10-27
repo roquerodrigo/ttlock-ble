@@ -20,19 +20,18 @@ import httpx
 from ._cloud_helpers import (
     CODE_CHANNEL_DEFAULT,
     CODE_TYPE_NEW_DEVICE_LOGIN,
-    DEFAULT_APP_ID,
-    DEFAULT_APP_SECRET,
-    DEFAULT_BASE_URL,
-    DEFAULT_PACKAGE,
     load_uniqueid,
     md5_hex,
     sign_request,
 )
 from .exceptions import CloudError
 from .models import CloudCredentials, VirtualKey
+from .models.cloud_app import DLOCK_XP
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from .models import CloudApp
 
 log: logging.Logger = logging.getLogger("ttlock_ble.cloud")
 
@@ -48,15 +47,16 @@ class TTLockCloud:
     def __init__(  # noqa: PLR0913  -- single keyword-only constructor for the cloud client
         self,
         *,
-        app_id: str = DEFAULT_APP_ID,
-        app_secret: str = DEFAULT_APP_SECRET,
-        base_url: str = DEFAULT_BASE_URL,
-        package_name: str = DEFAULT_PACKAGE,
-        version: str = "2.2",
-        platform: str = "Android-1.6.0",
+        app_id: str = DLOCK_XP.app_id,
+        app_secret: str = DLOCK_XP.app_secret,
+        base_url: str = DLOCK_XP.base_url,
+        package_name: str = DLOCK_XP.package_name,
+        version: str = DLOCK_XP.version,
+        platform: str = DLOCK_XP.platform,
         language: str = "en",
         timeout: float = 35.0,
         client: httpx.AsyncClient | None = None,
+        follows_regional_endpoint: bool = True,
     ) -> None:
         """Configure the client.
 
@@ -70,12 +70,36 @@ class TTLockCloud:
         self.version = version
         self.platform = platform
         self.language = language
+        self.follows_regional_endpoint = follows_regional_endpoint
         self.creds: CloudCredentials | None = None
         self.site_id: int = 0
         self.country_id: int = 0
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=timeout)
         self._uniqueid: str | None = None
+
+    @classmethod
+    def for_app(
+        cls,
+        app: CloudApp,
+        *,
+        language: str = "en",
+        timeout: float = 35.0,
+        client: httpx.AsyncClient | None = None,
+    ) -> Self:
+        """Build a client that signs in as `app`, e.g. one of `CLOUD_APPS`."""
+        return cls(
+            app_id=app.app_id,
+            app_secret=app.app_secret,
+            base_url=app.base_url,
+            package_name=app.package_name,
+            version=app.version,
+            platform=app.platform,
+            language=language,
+            timeout=timeout,
+            client=client,
+            follows_regional_endpoint=app.follows_regional_endpoint,
+        )
 
     async def _async_uniqueid(self) -> str:
         """Return the cached install id, loading it from disk on first use.
@@ -120,7 +144,7 @@ class TTLockCloud:
             "packageName": self.package_name,
             "countryId": str(country_id if country_id is not None else self.country_id),
             "siteId": str(site_id if site_id is not None else self.site_id),
-            "install": "install:com.dlock.smart",
+            "install": f"install:{self.package_name}",
         }
         body = await self._post("/user/login", params)
         uid_field = body.get("uid") or body.get("user_id") or body.get("userId")
@@ -175,11 +199,11 @@ class TTLockCloud:
         return await self._post("/user/loginNewDeviceValidation", params)
 
     async def discover_site(self) -> Mapping[str, object]:
-        """Resolve the regional API base URL + site/country for our public IP."""
+        """Resolve the site/country for our public IP, and the regional base URL unless pinned."""
         uniqueid = await self._async_uniqueid()
         body = await self._post("/system/getCountryAndSiteInfo", {"uniqueid": uniqueid})
         api = body.get("apiDomainName")
-        if api:
+        if api and self.follows_regional_endpoint:
             self.base_url = str(api).rstrip("/")
         site_field = body.get("siteId")
         if site_field is not None:

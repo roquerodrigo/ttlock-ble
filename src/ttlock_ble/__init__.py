@@ -3,6 +3,7 @@
 Public API:
     TTLockClient      — async BLE client for an already-paired lock
     TTLockCloud       — async HTTP client for the TTLock cloud (key bootstrap)
+    CloudApp          — the OEM app identity the cloud client presents (see CLOUD_APPS)
     VirtualKey        — per-(user, lock) credential bundle
     LockVersion       — firmware identifiers used in the V3 frame header
     SiteInfo          — regional API endpoints (siteId, country, base URL)
@@ -41,8 +42,10 @@ from .constants import (
 )
 from .exceptions import CloudError, TTLockError
 from .models import (
+    CLOUD_APPS,
     AutoLockLimits,
     CardEntry,
+    CloudApp,
     CyclicSchedule,
     DeviceFeatures,
     DeviceInfo,
@@ -59,9 +62,11 @@ from .models import (
 )
 
 __all__ = [
+    "CLOUD_APPS",
     "AutoLockLimits",
     "AutoLockOperate",
     "CardEntry",
+    "CloudApp",
     "CloudError",
     "CyclicSchedule",
     "DeviceFeatures",

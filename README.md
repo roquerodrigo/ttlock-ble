@@ -82,6 +82,16 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+Accounts created in another TTLock-based app are only visible to that app's own cloud
+identity. Pick it from `CLOUD_APPS` (`dlock_xp`, the default, or `schlage_breeze`):
+
+```python
+from ttlock_ble import CLOUD_APPS, TTLockCloud
+
+async with TTLockCloud.for_app(CLOUD_APPS["schlage_breeze"]) as cloud:
+    ...
+```
+
 ### 2. Control a lock over BLE
 
 ```python
@@ -145,8 +155,8 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 
 | Command | Access | What it does |
 | --- | --- | --- |
-| `ttlock sync` | Cloud account | Log in to the cloud and cache the account's eKeys locally |
-| `ttlock verify <code>` | Cloud account | Register this machine with the new-device verification code |
+| `ttlock sync [--app <app>]` | Cloud account | Log in to the cloud and cache the account's eKeys locally; `--app` picks the TTLock-based app the account belongs to (default `dlock_xp`) |
+| `ttlock verify <code> [--app <app>]` | Cloud account | Register this machine with the new-device verification code |
 | `ttlock list` | None | Show cached locks |
 | `ttlock unlock <lock>` | User eKey | Unlock a lock over Bluetooth |
 | `ttlock lock <lock>` | User eKey | Lock a lock over Bluetooth |
@@ -208,7 +218,8 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 | Method | Access | Purpose |
 | --- | --- | --- |
-| `discover_site()` | None | Resolve the regional API base URL / site for the caller's public IP |
+| `TTLockCloud.for_app(app)` | — | Build a client that signs in as one of `CLOUD_APPS` (`CloudApp`) |
+| `discover_site()` | None | Resolve the site for the caller's public IP, and the regional API base URL unless the app pins its own |
 | `request_login_verification_code(email)` | None | Email/SMS a new-device login code |
 | `validate_new_device(email, code)` | None | Register this machine with the code |
 | `login(email, password)` | Cloud account | Authenticate; caches the access token |
@@ -217,7 +228,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 ### Models & enums
 
-- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `DeviceFeatures`, `AutoLockLimits`, `LockSound`, `FingerprintEntry`, `CardEntry`, `PasscodeEntry`, `CyclicSchedule`
+- **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `CloudApp` (presets in `CLOUD_APPS`), `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `DeviceFeatures`, `AutoLockLimits`, `LockSound`, `FingerprintEntry`, `CardEntry`, `PasscodeEntry`, `CyclicSchedule`
 - **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockFeature`, `LockVolume`, `LogOperate`, `PwdOperateType`
 - **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP)
 
