@@ -16,10 +16,12 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from ttlock_ble import CloudError, TTLockCloud, VirtualKey
+from ttlock_ble import CLOUD_APPS, CloudError, TTLockCloud, VirtualKey
 from ttlock_ble._cloud_helpers import (
     DEFAULT_APP_ID,
     DEFAULT_APP_SECRET,
+    DEFAULT_BASE_URL,
+    DEFAULT_PACKAGE,
     load_uniqueid,
     md5_hex,
     sign_request,
@@ -118,6 +120,65 @@ class TestHelpers:
         assert d.is_dir()
 
 
+class TestCloudApps:
+    def test_default_client_presents_the_dlock_xp_identity(self) -> None:
+        cloud = TTLockCloud()
+        dlock_xp = CLOUD_APPS["dlock_xp"]
+        assert (cloud.app_id, cloud.app_secret) == (DEFAULT_APP_ID, DEFAULT_APP_SECRET)
+        assert (dlock_xp.app_id, dlock_xp.package_name) == (DEFAULT_APP_ID, DEFAULT_PACKAGE)
+        assert cloud.base_url == dlock_xp.base_url == DEFAULT_BASE_URL
+        assert cloud.follows_regional_endpoint
+
+    def test_for_app_copies_the_identity(self) -> None:
+        breeze = CLOUD_APPS["schlage_breeze"]
+        cloud = TTLockCloud.for_app(breeze, language="pt")
+        assert cloud.app_id == breeze.app_id
+        assert cloud.app_secret == breeze.app_secret
+        assert cloud.package_name == "com.breeze.lock"
+        assert cloud.base_url == "https://euservlet.ttlock.com"
+        assert cloud.version == breeze.version
+        assert cloud.platform == breeze.platform
+        assert cloud.language == "pt"
+        assert not cloud.follows_regional_endpoint
+
+    async def test_requests_carry_the_selected_identity(self) -> None:
+        fake = FakeHTTPClient([FakeResponse(body={"uid": 1, "accessToken": "t", "errcode": 0})])
+        cloud = TTLockCloud.for_app(CLOUD_APPS["schlage_breeze"], client=fake)  # type: ignore[arg-type]
+        cloud._uniqueid = "deadbeef"
+        await cloud.login("user@example.com", "secret")
+        sent = fake.calls[0]
+        assert str(sent["url"]).startswith("https://euservlet.ttlock.com/lock/")
+        headers = sent["headers"]
+        data = sent["data"]
+        assert isinstance(headers, dict)
+        assert isinstance(data, dict)
+        assert headers["appid"] == "117e1efe3bbd403bb72f62759123801a"
+        assert headers["packageName"] == "com.breeze.lock"
+        assert headers["platform"] == "iOS-2.3.0"
+        assert data["packageName"] == "com.breeze.lock"
+        assert data["install"] == "install:com.breeze.lock"
+
+    async def test_pinned_app_keeps_its_endpoint_after_site_discovery(self) -> None:
+        fake = FakeHTTPClient(
+            [
+                FakeResponse(
+                    body={
+                        "apiDomainName": "https://servlet.ttlock.com",
+                        "siteId": "2",
+                        "countryId": "61",
+                        "errcode": 0,
+                    }
+                )
+            ]
+        )
+        cloud = TTLockCloud.for_app(CLOUD_APPS["schlage_breeze"], client=fake)  # type: ignore[arg-type]
+        cloud._uniqueid = "deadbeef"
+        await cloud.discover_site()
+        assert cloud.base_url == "https://euservlet.ttlock.com"
+        assert cloud.site_id == 2
+        assert cloud.country_id == 61
+
+
 class TestLogin:
     async def test_login_caches_token_and_signs_request(self) -> None:
         cloud, fake = _cloud(
@@ -140,6 +201,7 @@ class TestLogin:
         assert isinstance(headers, dict)
         assert headers["signature"]
         assert headers["appid"] == DEFAULT_APP_ID
+        assert data["install"] == f"install:{DEFAULT_PACKAGE}"
 
     async def test_login_accepts_snake_case_uid_and_token(self) -> None:
         cloud, _ = _cloud([FakeResponse(body={"user_id": "7", "access_token": "t", "errcode": 0})])

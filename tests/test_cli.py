@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,8 +18,10 @@ from typer.testing import CliRunner
 
 from tests.conftest import make_virtual_key
 from ttlock_ble import (
+    CLOUD_APPS,
     AutoLockLimits,
     CardEntry,
+    CloudApp,
     CyclicSchedule,
     DeviceFeatures,
     DeviceInfo,
@@ -59,6 +62,17 @@ def _write_keys(store: Path) -> None:
     store.write_text(json.dumps([make_virtual_key().to_dict()]))
 
 
+def _patch_cloud(monkeypatch, cli_module, fake_cloud) -> list[CloudApp]:
+    selected: list[CloudApp] = []
+
+    def _for_app(app: CloudApp) -> MagicMock:
+        selected.append(app)
+        return fake_cloud
+
+    monkeypatch.setattr(cli_module, "TTLockCloud", SimpleNamespace(for_app=_for_app))
+    return selected
+
+
 class TestSync:
     def test_sync_saves_keys(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
@@ -68,7 +82,7 @@ class TestSync:
         fake_cloud.list_keys = AsyncMock(return_value=[make_virtual_key()])
         fake_cloud.__aenter__ = AsyncMock(return_value=fake_cloud)
         fake_cloud.__aexit__ = AsyncMock(return_value=None)
-        monkeypatch.setattr(cli_module, "TTLockCloud", lambda: fake_cloud)
+        _patch_cloud(monkeypatch, cli_module, fake_cloud)
 
         result = runner.invoke(cli_module.app, ["sync", "-v"])
         assert result.exit_code == 0, result.output
@@ -84,7 +98,7 @@ class TestSync:
         fake_cloud.list_keys = AsyncMock(return_value=[])
         fake_cloud.__aenter__ = AsyncMock(return_value=fake_cloud)
         fake_cloud.__aexit__ = AsyncMock(return_value=None)
-        monkeypatch.setattr(cli_module, "TTLockCloud", lambda: fake_cloud)
+        _patch_cloud(monkeypatch, cli_module, fake_cloud)
 
         result = runner.invoke(cli_module.app, ["sync"])
         assert result.exit_code == 0, result.output
@@ -98,7 +112,7 @@ class TestSync:
         fake_cloud.request_login_verification_code = AsyncMock()
         fake_cloud.__aenter__ = AsyncMock(return_value=fake_cloud)
         fake_cloud.__aexit__ = AsyncMock(return_value=None)
-        monkeypatch.setattr(cli_module, "TTLockCloud", lambda: fake_cloud)
+        _patch_cloud(monkeypatch, cli_module, fake_cloud)
 
         result = runner.invoke(cli_module.app, ["sync"])
         assert result.exit_code == 2
@@ -112,11 +126,45 @@ class TestSync:
         fake_cloud.login = AsyncMock(side_effect=CloudError({"errmsg": "wrong password"}))
         fake_cloud.__aenter__ = AsyncMock(return_value=fake_cloud)
         fake_cloud.__aexit__ = AsyncMock(return_value=None)
-        monkeypatch.setattr(cli_module, "TTLockCloud", lambda: fake_cloud)
+        _patch_cloud(monkeypatch, cli_module, fake_cloud)
 
         result = runner.invoke(cli_module.app, ["sync"])
         assert result.exit_code != 0
         assert isinstance(result.exception, CloudError)
+
+    def test_sync_signs_in_as_the_selected_app(self, cli_app, monkeypatch) -> None:
+        cli_module, _ = cli_app
+        fake_cloud = MagicMock()
+        fake_cloud.discover_site = AsyncMock()
+        fake_cloud.login = AsyncMock(return_value=MagicMock(uid=1))
+        fake_cloud.list_keys = AsyncMock(return_value=[])
+        fake_cloud.__aenter__ = AsyncMock(return_value=fake_cloud)
+        fake_cloud.__aexit__ = AsyncMock(return_value=None)
+        selected = _patch_cloud(monkeypatch, cli_module, fake_cloud)
+
+        result = runner.invoke(cli_module.app, ["sync", "--app", "schlage_breeze"])
+        assert result.exit_code == 0, result.output
+        assert selected == [CLOUD_APPS["schlage_breeze"]]
+
+    def test_sync_defaults_to_the_dlock_xp_app(self, cli_app, monkeypatch) -> None:
+        cli_module, _ = cli_app
+        fake_cloud = MagicMock()
+        fake_cloud.discover_site = AsyncMock()
+        fake_cloud.login = AsyncMock(return_value=MagicMock(uid=1))
+        fake_cloud.list_keys = AsyncMock(return_value=[])
+        fake_cloud.__aenter__ = AsyncMock(return_value=fake_cloud)
+        fake_cloud.__aexit__ = AsyncMock(return_value=None)
+        selected = _patch_cloud(monkeypatch, cli_module, fake_cloud)
+
+        result = runner.invoke(cli_module.app, ["sync"])
+        assert result.exit_code == 0, result.output
+        assert selected == [CLOUD_APPS["dlock_xp"]]
+
+    def test_sync_unknown_app_errors(self, cli_app) -> None:
+        cli_module, _ = cli_app
+        result = runner.invoke(cli_module.app, ["sync", "--app", "nope"])
+        assert result.exit_code != 0
+        assert "schlage_breeze" in result.output
 
     def test_sync_missing_credentials_errors(self, cli_app, monkeypatch) -> None:
         cli_module, _ = cli_app
@@ -136,7 +184,7 @@ class TestVerify:
         fake_cloud.validate_new_device = AsyncMock()
         fake_cloud.__aenter__ = AsyncMock(return_value=fake_cloud)
         fake_cloud.__aexit__ = AsyncMock(return_value=None)
-        monkeypatch.setattr(cli_module, "TTLockCloud", lambda: fake_cloud)
+        _patch_cloud(monkeypatch, cli_module, fake_cloud)
 
         result = runner.invoke(cli_module.app, ["verify", "123456", "-v"])
         assert result.exit_code == 0, result.output
@@ -150,7 +198,7 @@ class TestVerify:
         fake_cloud.validate_new_device = AsyncMock()
         fake_cloud.__aenter__ = AsyncMock(return_value=fake_cloud)
         fake_cloud.__aexit__ = AsyncMock(return_value=None)
-        monkeypatch.setattr(cli_module, "TTLockCloud", lambda: fake_cloud)
+        _patch_cloud(monkeypatch, cli_module, fake_cloud)
 
         result = runner.invoke(cli_module.app, ["verify", "000000"])
         assert result.exit_code == 0, result.output

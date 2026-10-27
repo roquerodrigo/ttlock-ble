@@ -17,6 +17,8 @@ EXPECTED_EXPORTS = frozenset(
         "AutoLockLimits",
         "AutoLockOperate",
         "CardEntry",
+        "CLOUD_APPS",
+        "CloudApp",
         "CloudError",
         "CyclicSchedule",
         "DeviceFeatures",
