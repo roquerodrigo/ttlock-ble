@@ -142,9 +142,6 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[PasscodeEntry | None
     item its own length-prefixed fields describe runs past the end of
     the payload.
     """
-    if len(plaintext) < 2:
-        # The shared envelope parser includes raw bytes in its error message.
-        raise ValueError(f"response too short: length={len(plaintext)}")
     _cmd_echo, status, data = parse_response_status(plaintext)
     if status != RESPONSE_SUCCESS:
         raise RuntimeError(f"passcode list FAILED: status={status:#x} data_length={len(data)}")

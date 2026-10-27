@@ -175,6 +175,10 @@ class TestCommands:
         echo, status, data = cmd.parse_response_status(bytes.fromhex("47012a0000"))
         assert echo == 0x47 and status == 0x01 and data == b"\x2a\x00\x00"
 
+    def test_parse_response_status_short_error_reports_only_the_length(self):
+        with pytest.raises(ValueError, match=r"^response too short: length=1$"):
+            cmd.parse_response_status(b"\x9a")
+
     def test_parse_lock_status_locked(self):
         # Real captured response; byte 0 of payload is battery, byte 1 is state.
         from ttlock_ble import LockState
