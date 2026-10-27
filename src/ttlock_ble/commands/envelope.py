@@ -15,5 +15,5 @@ def parse_response_status(plaintext: bytes) -> tuple[int, int, bytes]:
     means OK; `RESPONSE_FAILED (0)` carries an error code in `data[0]`.
     """
     if len(plaintext) < 2:
-        raise ValueError(f"response too short: {plaintext.hex()}")
+        raise ValueError(f"response too short: length={len(plaintext)}")
     return plaintext[0], plaintext[1], plaintext[2:]
