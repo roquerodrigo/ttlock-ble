@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.3](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.2...v0.3.3) (2026-10-27)
+
+
+### Features
+
+* **client:** add get_cards() ([7409be8](https://github.com/roquerodrigo/ttlock-ble/commit/7409be82b524a5a889c456dab73ecc8aa6906c9d))
+* **cloud:** sign in as other TTLock-based apps ([3f34442](https://github.com/roquerodrigo/ttlock-ble/commit/3f34442a7cd75e7f2f5cd6dfee0f2c6dca98486f))
+
+
+### Bug Fixes
+
+* **ble:** release the bleak client after the lock drops the link ([66fc0b3](https://github.com/roquerodrigo/ttlock-ble/commit/66fc0b337923b174ef679126a3e809ad691f7e48)), closes [#103](https://github.com/roquerodrigo/ttlock-ble/issues/103)
+* **commands:** keep raw bytes out of the short-response error ([43fafa3](https://github.com/roquerodrigo/ttlock-ble/commit/43fafa3153ce806e19e020c2e52a26f82ec3ad8d))
+* **security:** prevent card id disclosure in logs and errors ([3b84aee](https://github.com/roquerodrigo/ttlock-ble/commit/3b84aeef0d80002e6f565571fea4935c4524f3eb))
+* **security:** prevent PIN disclosure in inventory logs and errors ([30e5fa3](https://github.com/roquerodrigo/ttlock-ble/commit/30e5fa3f2bf9118b76e171be52b033d983bf053f))
+
+
+### Miscellaneous Chores
+
+* **release:** keep only user-facing changes in the changelog ([8025f57](https://github.com/roquerodrigo/ttlock-ble/commit/8025f57cebc7de63a66035fd19e1efb042d0208f))
+
 ## [0.3.2](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.1...v0.3.2) (2026-09-06)
 
 
