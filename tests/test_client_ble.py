@@ -254,6 +254,49 @@ class TestDisconnect:
         await client.disconnect()  # error swallowed on teardown
         assert fake.disconnected
 
+    async def test_disconnect_after_lock_dropped_link_still_disconnects_bleak(
+        self, patched_connect
+    ) -> None:
+        key = make_virtual_key()
+        client = TTLockClient(key, device=MagicMock())
+        fake = FakeBleakClient(key)
+        patched_connect(fake)
+        await client.connect()
+        fake.is_connected = False
+        await client.disconnect()
+        assert fake.disconnected
+        assert not fake.stopped_notify
+        assert client._transport._client is None
+
+    async def test_disconnect_clears_client_when_bleak_disconnect_raises(
+        self, patched_connect
+    ) -> None:
+        key = make_virtual_key()
+        client = TTLockClient(key, device=MagicMock())
+        fake = FakeBleakClient(key)
+        fake.disconnect = AsyncMock(side_effect=TimeoutError)  # type: ignore[method-assign]
+        patched_connect(fake)
+        await client.connect()
+        with pytest.raises(TimeoutError):
+            await client.disconnect()
+        assert client._transport._client is None
+
+    async def test_reconnect_after_lock_dropped_link_releases_previous_client(
+        self, patched_connect
+    ) -> None:
+        key = make_virtual_key()
+        client = TTLockClient(key, device=MagicMock())
+        dropped = FakeBleakClient(key)
+        patched_connect(dropped)
+        await client.connect()
+        dropped.is_connected = False
+        fresh = FakeBleakClient(key)
+        patched_connect(fresh)
+        await client.connect()
+        assert dropped.disconnected
+        assert client._transport._client is fresh
+        assert not fresh.disconnected
+
 
 class TestCommands:
     async def _connected(self, patched_connect, *, service: str = "ttl"):

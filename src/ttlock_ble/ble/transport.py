@@ -95,6 +95,7 @@ class BleTransport:
         """
         if self.is_connected:
             return
+        await self.disconnect()
         if self.device is None:
             self.device = await find_lock_device(self.address, self.scan_timeout)
         if self.device is None:
@@ -121,15 +122,20 @@ class BleTransport:
         log.info("Connected to %s (%s)", self.display_name, self.address)
 
     async def disconnect(self) -> None:
-        """Stop notifications and tear down the BLE connection."""
-        if self._client is not None and self._client.is_connected:
-            try:
-                if self._notify_char is not None:
+        """Stop notifications and release the BLE client, even after the lock dropped the link."""
+        if self._client is None:
+            return
+        try:
+            if self._client.is_connected and self._notify_char is not None:
+                try:
                     await self._client.stop_notify(self._notify_char)
-            except Exception:  # teardown swallows whatever bleak raises
-                log.debug("stop_notify failed; ignoring on teardown", exc_info=True)
+                except Exception:  # teardown swallows whatever bleak raises
+                    log.debug("stop_notify failed; ignoring on teardown", exc_info=True)
+            # bleak's BlueZ backend closes its per-connection D-Bus bus only here; skipping
+            # it on a dropped link leaks the notify session and BlueZ duplicates every chunk.
             await self._client.disconnect()
-        self._client = None
+        finally:
+            self._client = None
 
     async def exchange(self, frame: Frame, *, timeout: float = DEFAULT_RECV_TIMEOUT) -> Frame:  # noqa: ASYNC109 -- the deadline is the whole point of this helper
         """Send `frame` and return the lock's reply to *that* command.
