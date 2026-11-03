@@ -168,8 +168,8 @@ emergency `git commit --no-verify` and immediately re-run the lint commands.
 ## Conventional commits
 
 All commits follow [Conventional Commits](https://www.conventionalcommits.org/),
-in **English**, which `release-please` parses to bump `pyproject.toml` `version`
-and generate `CHANGELOG.md`:
+in **English**, which Release Autopilot parses to bump `pyproject.toml` `version`
+and write `CHANGELOG.md`:
 
 | Type | Meaning | Bump |
 |---|---|---|
@@ -203,12 +203,12 @@ and generate `CHANGELOG.md`:
 
 ## Releasing
 
-- `release-please` (driven by `.github/workflows/release.yml` after a green
-  CI run on `main`) opens a release-PR with the next version +
+- Release Autopilot (driven by `.github/workflows/release.yml` after a green
+  CI run on `main`) keeps a release-PR up to date with the next version +
   `CHANGELOG.md`. Merging that PR triggers the publish job, which builds
   the sdist + wheel with `uv build` and uploads them to PyPI using the
   `PYPI_API_TOKEN` repository secret.
-- Don't manually edit `pyproject.toml` `version` — release-please owns it.
+- Don't manually edit `pyproject.toml` `version` — Release Autopilot owns it.
 
 ## Testing
 
