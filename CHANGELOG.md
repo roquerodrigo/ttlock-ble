@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.4](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.3...v0.3.4) (2026-11-05)
+
+### Bug fixes
+
+- Unlocking and locking no longer fail with error 0x0D on locks whose eKeys have been reset. ([#112](https://github.com/roquerodrigo/ttlock-ble/pull/112))
+
 ## [0.3.3](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.2...v0.3.3) (2026-10-27)
 
 
