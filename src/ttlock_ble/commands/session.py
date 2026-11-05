@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .encoding import bcd_time10, int_to_bytes_be
+from .encoding import decimal_time_bytes, int_to_bytes_be
 from .envelope import RESPONSE_SUCCESS, parse_response_status
 
 VENDOR = "0658d44e0c504619a09c5b91be75a3a8"
@@ -27,24 +27,25 @@ def payload_check_user_time(
 ) -> bytes:
     """COMM_CHECK_USER_TIME — 17 bytes proving the key is valid right now.
 
-    Wire layout matches `CheckUserTimeCommand.build()` in ttlock-sdk-js:
+    Wire layout matches `CommandUtil_V3.checkUserTime` in the official SDK:
 
-        [0:5]    start date BCD (yyMMddHHmm)
-        [5:9]    end date BCD (first 4 bytes)
-        [9]      end date BCD (last byte) — overlaps lockFlagPos high byte
+        [0:5]    start date, one decimal byte per field (yyMMddHHmm)
+        [5:10]   end date, same encoding
         [10:13]  lockFlagPos (low 3 bytes, big-endian)
         [13:17]  uid (4 bytes, big-endian)
 
-    Defaults match `TTLock.unlock()`: uid=0, lockFlagPos=0, plus the magic
-    "permanent key" date strings the official client uses.
+    The lock compares `lockFlagPos` against the flag it keeps for the
+    key: a key sent with a lower one is refused as reset (error 0x0D,
+    `LOCK_KEY_FLAG_INVALID`), so callers pass the key's own value. The
+    default dates are the "permanent key" window the official client
+    falls back to when the key carries no validity period.
     """
     out = bytearray(17)
-    out[0:5] = bcd_time10(start_date)
-    out[9] = (lock_flag_pos >> 24) & 0xFF
+    out[0:5] = decimal_time_bytes(start_date)
+    out[5:10] = decimal_time_bytes(end_date)
     out[10] = (lock_flag_pos >> 16) & 0xFF
     out[11] = (lock_flag_pos >> 8) & 0xFF
     out[12] = lock_flag_pos & 0xFF
-    out[5:10] = bcd_time10(end_date)
     out[13:17] = int_to_bytes_be(uid, 4)
     return bytes(out)
 

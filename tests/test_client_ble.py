@@ -37,9 +37,9 @@ from ttlock_ble.ble.constants import (
     TTL_WRITE,
 )
 from ttlock_ble.constants import KeyboardPwdType, LockFeature
-from ttlock_ble.crypto import aes_encrypt, hex_key_to_bytes
+from ttlock_ble.crypto import aes_decrypt, aes_encrypt, hex_key_to_bytes
 from ttlock_ble.exceptions import TTLockError
-from ttlock_ble.protocol import Frame
+from ttlock_ble.protocol import Frame, FrameReassembler
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -315,6 +315,25 @@ class TestCommands:
         ]
         await client.unlock()
         assert len(fake.written) >= 2
+
+    async def test_unlock_check_user_time_sends_key_identity(self, patched_connect) -> None:
+        key = make_virtual_key()
+        key.uid = 32308852
+        key.lockFlagPos = 3
+        client = TTLockClient(key, device=MagicMock(), keep_alive_after_command=0)
+        fake = FakeBleakClient(key)
+        patched_connect(fake)
+        await client.connect()
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_USER_TIME, _check_user_time_plain()),
+            _resp_frame(key, cmd.CMD_UNLOCK, _status_plain(cmd.CMD_UNLOCK)),
+        ]
+        await client.unlock()
+        sent = FrameReassembler().feed(b"".join(fake.written))[0]
+        assert sent.command == cmd.CMD_CHECK_USER_TIME
+        assert aes_decrypt(sent.data, hex_key_to_bytes(key.aesKeyStr)) == (
+            cmd.payload_check_user_time(uid=32308852, lock_flag_pos=3)
+        )
 
     async def test_unlock_rejected_raises(self, patched_connect) -> None:
         client, fake, key = await self._connected(patched_connect)
