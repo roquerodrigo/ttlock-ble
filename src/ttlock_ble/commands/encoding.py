@@ -10,25 +10,14 @@ def int_to_bytes_be(value: int, length: int = 4) -> bytes:
     return value.to_bytes(length, "big", signed=False)
 
 
-def bcd_time10(time_str: str) -> bytes:
-    """Pack a 10-digit `yyMMddHHmm` string into 5 BCD bytes (two digits per byte)."""
-    if len(time_str) % 2:
-        time_str = "0" + time_str
-    out = bytearray()
-    for i in range(0, len(time_str), 2):
-        hi = int(time_str[i])
-        lo = int(time_str[i + 1])
-        out.append(((hi << 4) | lo) & 0xFF)
-    return bytes(out)
-
-
 def decimal_time_bytes(time_str: str) -> bytes:
     """Pack a digit string into one byte per pair, decimal-encoded.
 
     Mirrors `dateTimeToBuffer` in ttlock-sdk-js: `parseInt(substr(2))` per
     pair, so "26" becomes byte 26 (0x1A), NOT 0x26 like BCD would. Used by
-    COMM_TIME_CALIBRATE where the lock parses the bytes into a real
-    `Calendar` (so 0x1A → year 2026, 0x26 → year 2038).
+    COMM_TIME_CALIBRATE, COMM_CHECK_USER_TIME and the passcode windows,
+    where the lock parses the bytes into a real `Calendar` (so 0x1A →
+    year 2026, 0x26 → year 2038).
     """
     if len(time_str) % 2:
         time_str = "0" + time_str

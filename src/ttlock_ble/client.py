@@ -933,7 +933,10 @@ class TTLockClient:
     async def _check_user_time(self) -> int:
         """Send CHECK_USER_TIME and return the lock's `psFromLock` token."""
         resp = await self._transport.exchange(
-            self._frame(cmd.CMD_CHECK_USER_TIME, cmd.payload_check_user_time())
+            self._frame(
+                cmd.CMD_CHECK_USER_TIME,
+                cmd.payload_check_user_time(uid=self.key.uid, lock_flag_pos=self.key.lockFlagPos),
+            )
         )
         log.debug(
             "check_user_time response: cmd=0x%02x encrypt=0x%02x data=%s",

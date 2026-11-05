@@ -141,10 +141,15 @@ class TestCommands:
     def test_check_user_time_default_payload_layout(self):
         p = cmd.payload_check_user_time()
         assert len(p) == 17
-        # Default sentinel start date "0001311400" → 5 BCD bytes
-        assert p[0:5] == bytes.fromhex("0001311400")
-        # uid=0 default
-        assert p[13:17] == bytes(4)
+        assert p[0:5] == bytes([0, 1, 31, 14, 0])
+        assert p[5:10] == bytes([99, 11, 30, 14, 0])
+        assert p[10:17] == bytes(7)
+
+    def test_check_user_time_carries_lock_flag_pos_and_uid(self):
+        p = cmd.payload_check_user_time(uid=32308852, lock_flag_pos=0x0A0B0C)
+        assert p[5:10] == bytes([99, 11, 30, 14, 0])
+        assert p[10:13] == bytes([0x0A, 0x0B, 0x0C])
+        assert int.from_bytes(p[13:17], "big") == 32308852
 
     def test_check_user_time_response_extracts_ps_from_lock(self):
         # Captured plaintext from a real run: [0x55, 0x01, ps(4), uniqueid(2)]
