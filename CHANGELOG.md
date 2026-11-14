@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.5](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.4...v0.3.5) (2026-11-14)
+
+### Improvements
+
+- Bluetooth sessions with the lock are ready about 0.7 seconds sooner, which speeds up lock, unlock, state and log operations. ([#115](https://github.com/roquerodrigo/ttlock-ble/pull/115))
+
 ## [0.3.4](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.3...v0.3.4) (2026-11-05)
 
 ### Bug fixes
