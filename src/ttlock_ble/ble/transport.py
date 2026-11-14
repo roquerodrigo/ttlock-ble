@@ -12,14 +12,12 @@ from bleak_retry_connector import BleakClientWithServiceCache, establish_connect
 from ..exceptions import TTLockError
 from ..protocol import FrameReassembler
 from .constants import (
-    BATTERY_CHAR,
     BLE_WRITE_CHUNK,
     BONG_NOTIFY,
     BONG_SERVICE,
     BONG_WRITE,
     CONNECT_RETRIES,
     DEFAULT_RECV_TIMEOUT,
-    POST_NOTIFY_SETTLE,
     TTL_NOTIFY,
     TTL_SERVICE,
     TTL_WRITE,
@@ -92,6 +90,11 @@ class BleTransport:
         cooperates with other integrations sharing the BLE adapter and
         survives transient failures (essential under Home Assistant and
         ESPHome BLE proxies).
+
+        The link is ready for a command the moment the notify subscription
+        is acknowledged: the vendor app writes that descriptor and sends
+        its first command straight away, with no pause and no GATT read in
+        between, so none is spent here either.
         """
         if self.is_connected:
             return
@@ -117,8 +120,6 @@ class BleTransport:
         await self._discover_chars()
         assert self._notify_char is not None
         await self._client.start_notify(self._notify_char, self._on_notify)
-        await asyncio.sleep(POST_NOTIFY_SETTLE)
-        await self._wake_battery_read()
         log.info("Connected to %s (%s)", self.display_name, self.address)
 
     async def disconnect(self) -> None:
@@ -240,21 +241,6 @@ class BleTransport:
             "Failed to discover TTLock GATT service: lock exposed neither "
             f"{TTL_SERVICE} nor {BONG_SERVICE}"
         )
-
-    async def _wake_battery_read(self) -> None:
-        """Read the standard battery characteristic to nudge the BLE stack awake.
-
-        Some firmware revisions only enable the notify pipeline after the
-        central has issued at least one ATT read. The reported value is
-        unreliable on this firmware (always 100%); the in-band protocol
-        value from `query_state()` is used instead.
-        """
-        assert self._client is not None
-        try:
-            data = await self._client.read_gatt_char(BATTERY_CHAR)
-            log.debug("Wake-up battery read: %d", data[0] if data else -1)
-        except Exception:  # non-critical wake nudge
-            log.debug("Battery read skipped", exc_info=True)
 
     def _on_notify(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         log.debug("RX %s", bytes(data).hex())
