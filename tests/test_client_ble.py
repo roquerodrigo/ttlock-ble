@@ -111,7 +111,7 @@ class FakeBleakClient:
         self._notify_cb: Callable[[object, bytearray], None] | None = None
         self.written: list[bytes] = []
         self.reply_for_next: list[Frame] = []
-        self.battery_raises = False
+        self.read_uuids: list[str] = []
         self.disconnected = False
         self.stopped_notify = False
         self.char_values: dict[str, bytes] = {}
@@ -124,8 +124,7 @@ class FakeBleakClient:
         self.stopped_notify = True
 
     async def read_gatt_char(self, uuid: str) -> bytes:
-        if self.battery_raises:
-            raise RuntimeError("no battery char")
+        self.read_uuids.append(uuid)
         if uuid in self.missing_chars:
             raise RuntimeError(f"characteristic {uuid} not found")
         return self.char_values.get(uuid, b"\x64")
@@ -217,14 +216,24 @@ class TestConnect:
         with pytest.raises(TTLockError, match="Failed to discover TTLock GATT"):
             await client.connect()
 
-    async def test_battery_read_failure_is_non_fatal(self, patched_connect) -> None:
+    async def test_connect_is_ready_once_notifications_are_enabled(
+        self, patched_connect, monkeypatch
+    ) -> None:
         key = make_virtual_key()
         client = TTLockClient(key, device=MagicMock())
         fake = FakeBleakClient(key)
-        fake.battery_raises = True
         patched_connect(fake)
+        pauses: list[float] = []
+
+        async def _record_pause(seconds: float) -> None:
+            pauses.append(seconds)
+
+        monkeypatch.setattr(transport_mod.asyncio, "sleep", _record_pause)
         await client.connect()
-        assert client.is_connected
+        assert fake._notify_cb is not None
+        assert fake.read_uuids == []
+        assert fake.written == []
+        assert pauses == []
 
 
 @pytest.fixture(autouse=True)
