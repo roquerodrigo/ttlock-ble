@@ -1,0 +1,164 @@
+{
+ "description": "Decrypted plaintexts from the official TTLock app editing a card's weekly schedule (Android HCI log, decoded with ttlock_btsnoop_decode.py). Authentication frames (CHECK_ADMIN, CHECK_RANDOM) are omitted. Card 287454020 (id 11223344) on an SN484_PV53, fw 6.5.15.240522, captured 2026-11-22. TX = app to lock, RX = lock to app; RX values are the RESPONSE (0x54) payloads.",
+ "edits": [
+  {
+   "change": "Mon+Thu -> Tue+Fri, 20:14-21:14",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "card validity, sub-op 5: 2026-11-19 01:00 .. 2027-11-20 00:59",
+     "plaintext": "05112233441a0b1301001b0b14003b"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "05014005"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CLEAR (op 4) all weekly records of the card",
+     "plaintext": "04020411223344"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014004"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD (op 2) Tue 20:14-21:14",
+     "plaintext": "02020411223344010200140e150e00000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD (op 2) Fri 20:14-21:14",
+     "plaintext": "02020411223344010500140e150e00000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    }
+   ]
+  },
+  {
+   "change": "Tue+Fri -> Tue+Fri+Sat, 20:14-21:14",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "card validity, sub-op 5 (unchanged dates)",
+     "plaintext": "05112233441a0b1301001b0b14003b"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "05014005"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CLEAR (op 4)",
+     "plaintext": "04020411223344"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014004"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD Tue",
+     "plaintext": "02020411223344010200140e150e00000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD Fri",
+     "plaintext": "02020411223344010500140e150e00000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD Sat",
+     "plaintext": "02020411223344010600140e150e00000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    }
+   ]
+  },
+  {
+   "change": "Tue+Fri+Sat -> Mon+Thu, 20:14-21:14",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "card validity, sub-op 5 (unchanged dates)",
+     "plaintext": "05112233441a0b1301001b0b14003b"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "05014005"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CLEAR (op 4)",
+     "plaintext": "04020411223344"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014004"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD Mon",
+     "plaintext": "02020411223344010100140e150e00000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD Thu",
+     "plaintext": "02020411223344010400140e150e00000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    }
+   ]
+  }
+ ],
+ "sanitized": "Card ids replaced consistently with placeholder values (11223344, 55667788) and the lock MAC removed; all other bytes are as captured."
+}
