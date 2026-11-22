@@ -1,0 +1,164 @@
+{
+ "description": "Decrypted plaintexts from the official TTLock app editing a fingerprint's weekly schedule (Android HCI log, decoded with ttlock_btsnoop_decode.py). Authentication frames omitted. Fingerprint 55156171538441 (id 322a0c03, slot 9) on an SN484_PV53, fw 6.5.15.240522, captured 2026-11-22. The app does not offer switching a scheduled fingerprint to permanent, so removing a schedule entirely was not captured.",
+ "edits": [
+  {
+   "change": "Mon+Thu -> Tue+Fri, 21:18-23:18",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "fingerprint validity, sub-op 5: 2026-09-01 01:00 .. 2027-09-02 00:59",
+     "plaintext": "05322a0c0300091a090101001b0902003b"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "06014005"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CLEAR (op 4) all weekly records of the fingerprint",
+     "plaintext": "040106322a0c030009"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014004"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD (op 2) Tue 21:18-23:18",
+     "plaintext": "020106322a0c0300090102001512171200000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD (op 2) Fri 21:18-23:18",
+     "plaintext": "020106322a0c0300090105001512171200000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    }
+   ]
+  },
+  {
+   "change": "Tue+Fri -> Tue+Fri+Sat, 21:18-23:18",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "fingerprint validity, sub-op 5: 2026-09-01 01:00 .. 2027-09-02 00:59",
+     "plaintext": "05322a0c0300091a090101001b0902003b"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "06014005"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CLEAR (op 4) all weekly records of the fingerprint",
+     "plaintext": "040106322a0c030009"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014004"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD (op 2) Tue 21:18-23:18",
+     "plaintext": "020106322a0c0300090102001512171200000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD (op 2) Fri 21:18-23:18",
+     "plaintext": "020106322a0c0300090105001512171200000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD (op 2) Sat 21:18-23:18",
+     "plaintext": "020106322a0c0300090106001512171200000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    }
+   ]
+  },
+  {
+   "change": "Tue+Fri+Sat -> Mon+Thu, 21:18-23:18",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "fingerprint validity, sub-op 5: 2026-09-01 01:00 .. 2027-09-02 00:59",
+     "plaintext": "05322a0c0300091a090101001b0902003b"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "06014005"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CLEAR (op 4) all weekly records of the fingerprint",
+     "plaintext": "040106322a0c030009"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014004"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD (op 2) Mon 21:18-23:18",
+     "plaintext": "020106322a0c0300090101001512171200000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "ADD (op 2) Thu 21:18-23:18",
+     "plaintext": "020106322a0c0300090104001512171200000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "70014002"
+    }
+   ]
+  }
+ ],
+ "sanitized": "Card ids replaced consistently with placeholder values (11223344, 55667788) and the lock MAC removed; all other bytes are as captured."
+}

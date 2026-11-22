@@ -1,0 +1,25 @@
+{
+ "credential": "287454020",
+ "note": "reply_data is the RESPONSE payload after the [0x70][status] envelope",
+ "exchanges": [
+  {
+   "label": "cyclic_baseline",
+   "request": "0102041122334400000000000000000000000000",
+   "status": 1,
+   "reply_data": "40010001020411223344010100140e150e"
+  },
+  {
+   "label": "cyclic_cursor",
+   "request": "0102041122334400010000000000000000000000",
+   "status": 1,
+   "reply_data": "40010002020411223344010400140e150e"
+  },
+  {
+   "label": "cyclic_cursor",
+   "request": "0102041122334400020000000000000000000000",
+   "status": 1,
+   "reply_data": "40010001020411223344010100140e150e"
+  }
+ ],
+ "sanitized": "Card ids replaced consistently with placeholder values (11223344, 55667788) and the lock MAC removed; all other bytes are as captured."
+}
