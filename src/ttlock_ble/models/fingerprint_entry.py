@@ -13,12 +13,10 @@ if TYPE_CHECKING:
 class FingerprintEntry:
     """One enrolled fingerprint, decoded from the indexed CMD 0x06/0x06 query.
 
-    Known limitation: this cannot detect whether a fingerprint also has a
-    cyclic (day-of-week/time-range) restriction - that data lives in a
-    separate mechanism (CMD 0x70) this class doesn't query. A fingerprint
-    shown here as permanent or timed may in practice also be restricted
-    to specific days/hours. Do not treat the absence of that information
-    as confirmation a fingerprint is unrestricted.
+    The listing carries only the fingerprint's dates. Weekly windows live
+    in a separate record set (CMD 0x70): read them with
+    `TTLockClient.weekly_schedules.get(Credential.of(entry))` before
+    treating a fingerprint as unrestricted.
     """
 
     fingerprint_id: bytes = field(repr=False)
@@ -41,9 +39,7 @@ class FingerprintEntry:
 
         Derived from `end_date` being the sentinel value seen for every
         fingerprint the app itself labels "Permanent". Says nothing about
-        cyclic (day-of-week/time-range) restrictions - a permanent
-        fingerprint can still be cyclically restricted via a separate
-        mechanism this class doesn't cover; see the class docstring.
+        weekly windows - see `weekly_schedules.get`.
         """
         return self.end_date is None
 

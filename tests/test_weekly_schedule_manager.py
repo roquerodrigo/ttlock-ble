@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from bleak.exc import BleakError
 
-import ttlock_ble.credentials.weekly_schedule_manager as manager_mod
+import ttlock_ble.ble.transport as transport_mod
 from tests.conftest import make_virtual_key
 from tests.test_client_ble import FakeBleakClient, _check_admin_plain, _resp_frame, _status_plain
 from ttlock_ble import (
@@ -27,12 +29,12 @@ from ttlock_ble import (
 from ttlock_ble.crypto import aes_decrypt, hex_key_to_bytes
 from ttlock_ble.protocol import Frame, FrameReassembler
 
-_CARD = Credential.card(0x6195714B)
+_CARD = Credential.card(0x0A1B2C3D)
 _MONDAY = WeeklyWindow(Weekday.MONDAY, dt.time(8), dt.time(12))
 _THURSDAY = WeeklyWindow(Weekday.THURSDAY, dt.time(18, 30), dt.time(22))
-# Replies captured from an SN534 lock for a throwaway card, since deleted.
-_RECORD_MONDAY = bytes.fromhex("7001" + "2e01000102046195714b01010008000c00")
-_RECORD_THURSDAY = bytes.fromhex("7001" + "2e01000202046195714b010400121e1600")
+# Reply layouts captured from an SN534 lock, with a placeholder card id.
+_RECORD_MONDAY = bytes.fromhex("7001" + "2e01000102040a1b2c3d01010008000c00")
+_RECORD_THURSDAY = bytes.fromhex("7001" + "2e01000202040a1b2c3d010400121e1600")
 _ADD_DONE = bytes.fromhex("70012e02")
 _CLEAR_DONE = bytes.fromhex("70012e04")
 _NOTHING_TO_CLEAR = bytes.fromhex("70001f04")
@@ -82,7 +84,7 @@ class TestCredential:
     def test_card_uses_four_bytes_up_to_the_32_bit_limit(self) -> None:
         assert Credential.card(0xFFFFFFFF).identifier == bytes.fromhex("ffffffff")
         assert Credential.card(0x1_0000_0000).identifier == bytes.fromhex("0000000100000000")
-        assert _CARD.card_number == 0x6195714B
+        assert _CARD.card_number == 0x0A1B2C3D
 
     def test_card_number_must_fit(self) -> None:
         with pytest.raises(ValueError, match="8 bytes"):
@@ -94,7 +96,7 @@ class TestCredential:
         assert Credential.fingerprint(bytes(6)).card_number is None
 
     def test_of_listed_entries(self) -> None:
-        card = CardEntry(card_id=bytes.fromhex("6195714b"), start_date=None, end_date=None)
+        card = CardEntry(card_id=bytes.fromhex("0a1b2c3d"), start_date=None, end_date=None)
         finger = FingerprintEntry(
             fingerprint_id=bytes.fromhex("0001e240"), slot=3, start_date=None, end_date=None
         )
@@ -102,6 +104,14 @@ class TestCredential:
         assert Credential.of(finger) == Credential(
             CredentialType.FINGERPRINT, bytes.fromhex("0001e2400003")
         )
+
+    def test_repr_hides_the_id(self) -> None:
+        assert "0a1b2c3d" not in repr(_CARD)
+        assert repr(_CARD.identifier) not in repr(_CARD)
+        assert "CARD" in repr(_CARD)
+
+    def test_credential_type_given_as_int_is_converted(self) -> None:
+        assert Credential(2, bytes(4)).credential_type is CredentialType.CARD  # type: ignore[arg-type]
 
 
 class TestGet:
@@ -115,10 +125,7 @@ class TestGet:
         queries = _sent(client, fake)
         assert [query[7:9] for query in queries] == [b"\x00\x00", b"\x00\x01", b"\x00\x02"]
 
-    async def test_silence_means_no_windows_and_reopens_the_link(
-        self, patched_connect, monkeypatch
-    ) -> None:
-        monkeypatch.setattr(manager_mod, "_QUERY_TIMEOUT", 0.05)
+    async def test_silence_means_no_windows_and_reopens_the_link(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
             *_admin(client),
@@ -126,14 +133,11 @@ class TestGet:
             *_silence(),
             *_admin(client),
         ]
-        assert await client.weekly_schedules.get(_CARD) == ()
+        assert await client.weekly_schedules.get(_CARD, timeout=0.05) == ()
         assert fake.disconnected
         assert fake.reply_for_next == []
 
-    async def test_silence_after_records_raises_and_still_reopens(
-        self, patched_connect, monkeypatch
-    ) -> None:
-        monkeypatch.setattr(manager_mod, "_QUERY_TIMEOUT", 0.05)
+    async def test_silence_after_records_raises_and_still_reopens(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
             *_admin(client),
@@ -142,7 +146,7 @@ class TestGet:
             *_admin(client),
         ]
         with pytest.raises(TTLockError, match="no reply after 1 records"):
-            await client.weekly_schedules.get(_CARD)
+            await client.weekly_schedules.get(_CARD, timeout=0.05)
         assert fake.reply_for_next == []
 
     async def test_reply_for_another_credential(self, patched_connect) -> None:
@@ -163,15 +167,52 @@ class TestGet:
     async def test_malformed_envelope(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [*_admin(client), *_replies(client, _SCHEDULES, bytes([0x70]))]
-        with pytest.raises(TTLockError, match="Failed to get_weekly_schedule"):
+        with pytest.raises(TTLockError, match="get_weekly_schedule"):
             await client.weekly_schedules.get(_CARD)
 
     async def test_non_weekly_record(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
-        monthly = bytes.fromhex("7001" + "2e01000102046195714b02010308000c00")
+        monthly = bytes.fromhex("7001" + "2e01000102040a1b2c3d02010308000c00")
         fake.reply_for_next = [*_admin(client), *_replies(client, _SCHEDULES, monthly, monthly)]
         with pytest.raises(TTLockError, match="not a weekly window"):
             await client.weekly_schedules.get(_CARD)
+
+    async def test_window_ending_before_it_starts(self, patched_connect) -> None:
+        client, fake = await _connected(patched_connect)
+        overnight = bytes.fromhex("7001" + "2e01000102040a1b2c3d01010016000600")
+        fake.reply_for_next = [*_admin(client), *_replies(client, _SCHEDULES, overnight, overnight)]
+        with pytest.raises(TTLockError, match="Monday window does not end after it starts"):
+            await client.weekly_schedules.get(_CARD)
+
+    async def test_fingerprint(self, patched_connect) -> None:
+        client, fake = await _connected(patched_connect)
+        finger = Credential.fingerprint(bytes.fromhex("0001e2400003"))
+        record = bytes.fromhex("7001" + "2e0100010106" + "0001e2400003" + "01020009000b00")
+        fake.reply_for_next = [*_admin(client), *_replies(client, _SCHEDULES, record, record)]
+        windows = await client.weekly_schedules.get(finger)
+        assert windows == (WeeklyWindow(Weekday.TUESDAY, dt.time(9), dt.time(11)),)
+        assert _sent(client, fake)[0][:9] == bytes.fromhex("010106") + finger.identifier
+
+    async def test_cancellation_still_reopens_the_link(self, patched_connect) -> None:
+        client, fake = await _connected(patched_connect)
+        fake.reply_for_next = [*_admin(client), *_replies(client, _SCHEDULES)]
+        channel = client.weekly_schedules._channel
+        channel._send = AsyncMock(side_effect=asyncio.CancelledError)
+        channel._reopen = AsyncMock()
+        with pytest.raises(asyncio.CancelledError):
+            await client.weekly_schedules.get(_CARD)
+        channel._reopen.assert_awaited_once()
+
+    async def test_failed_reconnect_is_a_ttlock_error(self, patched_connect, monkeypatch) -> None:
+        client, fake = await _connected(patched_connect)
+        fake.reply_for_next = [*_admin(client), *_replies(client, _SCHEDULES), *_silence()]
+
+        async def _refuse(*_args: object, **_kwargs: object) -> None:
+            raise BleakError("out of slots")
+
+        monkeypatch.setattr(transport_mod, "establish_connection", _refuse)
+        with pytest.raises(TTLockError, match="Failed to connect to lock over BLE"):
+            await client.weekly_schedules.get(_CARD, timeout=0.05)
 
     async def test_without_the_feature(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
@@ -214,6 +255,16 @@ class TestSet:
             await client.weekly_schedules.set(_CARD, [_MONDAY])
         assert len(_sent(client, fake)) == 1
 
+    async def test_failure_after_clear_says_what_was_written(self, patched_connect) -> None:
+        client, fake = await _connected(patched_connect)
+        fake.reply_for_next = [
+            *_admin(client),
+            *_replies(client, _SCHEDULES, _CLEAR_DONE, _ADD_DONE, bytes.fromhex("700016")),
+        ]
+        with pytest.raises(TTLockError, match="windows cleared, only 1 of 2 written back") as error:
+            await client.weekly_schedules.set(_CARD, [_MONDAY, _THURSDAY])
+        assert error.value.__cause__ is not None
+
     async def test_wrong_echo(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
@@ -253,7 +304,72 @@ async def test_transport_timeout_is_a_reply_timeout() -> None:
         return None
 
     client._transport._client.write_gatt_char = _write
-    with pytest.raises(ReplyTimeoutError, match="Timed out"):
+    with pytest.raises(ReplyTimeoutError, match="timed out after"):
         await client._transport.exchange(
             Frame.for_lock(client.key.lockVersion, 0x14, b""), timeout=0.01
         )
+
+
+class TestTransportReconnect:
+    def _transport(self, callback: MagicMock):
+        client = TTLockClient(make_virtual_key(), disconnected_callback=callback)
+        return client._transport
+
+    def test_callback_skips_a_replaced_link_only(self) -> None:
+        callback = MagicMock()
+        transport = self._transport(callback)
+        replaced, current = MagicMock(), MagicMock()
+        transport._replaced_clients.add(replaced)
+        transport._on_disconnected(replaced)
+        callback.assert_not_called()
+        transport._on_disconnected(current)
+        callback.assert_called_once_with(current)
+
+    async def test_reconnect_drops_stale_state_and_survives_teardown_errors(
+        self, patched_connect
+    ) -> None:
+        callback = MagicMock()
+        key = make_virtual_key()
+        client = TTLockClient(key, device=MagicMock(), disconnected_callback=callback)
+        old = FakeBleakClient(key)
+        patched_connect(old)
+        await client.connect()
+        old.disconnect = AsyncMock(side_effect=BleakError("gone"))
+        client._transport._reassembler.feed(b"\x7f\x05")
+        client._transport._inbox.put_nowait(_resp_frame(key, 0x54, b"\x70\x01"))
+        new = FakeBleakClient(key)
+        patched_connect(new)
+        await client._transport.reconnect()
+        assert client._transport._client is new
+        assert client._transport._inbox.empty()
+        assert client._transport._reassembler.feed(b"") == []
+        assert old in client._transport._replaced_clients
+        callback.assert_not_called()
+
+    async def test_notify_failure_is_a_ttlock_error(self, patched_connect) -> None:
+        key = make_virtual_key()
+        client = TTLockClient(key, device=MagicMock())
+        fake = FakeBleakClient(key)
+        fake.start_notify = AsyncMock(side_effect=BleakError("no CCCD"))
+        patched_connect(fake)
+        with pytest.raises(TTLockError, match="Failed to subscribe to lock notifications"):
+            await client.connect()
+
+
+@pytest.mark.parametrize(
+    ("protocol_module", "protocol_name", "client_method"),
+    [
+        ("ttlock_ble.credentials.command_sender", "CommandSender", "_credential_command"),
+        ("ttlock_ble.credentials.query_sender", "QuerySender", "_query"),
+    ],
+)
+def test_channel_protocols_mirror_the_client(
+    protocol_module: str, protocol_name: str, client_method: str
+) -> None:
+    import importlib
+    import inspect
+
+    protocol = getattr(importlib.import_module(protocol_module), protocol_name)
+    expected = list(inspect.signature(protocol.__call__).parameters)[1:]
+    actual = list(inspect.signature(getattr(TTLockClient, client_method)).parameters)[1:]
+    assert expected == actual

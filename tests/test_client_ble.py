@@ -1498,7 +1498,7 @@ class TestExchangeTimeout:
 
         client._transport._client.write_gatt_char = _no_write  # type: ignore[method-assign]
         frame = Frame.for_lock(key.lockVersion, cmd.CMD_QUERY_STATE, b"")
-        with pytest.raises(TTLockError, match="Timed out"):
+        with pytest.raises(TTLockError, match="timed out after"):
             await client._transport.exchange(frame, timeout=0.01)
 
 

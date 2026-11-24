@@ -767,11 +767,12 @@ class TTLockClient:
         """Reconnect and authorize again, for a lock that went deaf mid-session.
 
         Runs inside the caller's hold on the command lock; the keep-alive
-        window is left alone, since the session it belongs to goes on.
+        window is left alone, since the session it belongs to goes on, and
+        `disconnected_callback` does not fire for the replaced link. The
+        `BLEDevice` the client was built with is reused.
         """
         log.info("Reopening the BLE link to %s", self.key.lockMac)
-        await self._transport.disconnect()
-        await self._transport.connect()
+        await self._transport.reconnect()
         await self._admin_handshake()
 
     async def _require_feature(self, action: str, feature: LockFeature) -> None:

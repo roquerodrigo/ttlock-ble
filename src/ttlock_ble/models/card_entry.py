@@ -13,13 +13,10 @@ if TYPE_CHECKING:
 class CardEntry:
     """One enrolled IC card (tag), decoded from the indexed CMD 0x05/0x01 query.
 
-    Known limitation: this cannot detect whether a card also has a
-    cyclic (day-of-week/time-range) restriction - CMD 0x70, the
-    mechanism that carries that data for every credential type, is not
-    implemented anywhere in this library yet. A card shown here as
-    permanent or timed may in practice also be restricted to specific
-    days/hours. Do not treat the absence of that information as
-    confirmation a card is unrestricted.
+    The listing carries only the card's dates. Weekly windows live in a
+    separate record set (CMD 0x70): read them with
+    `TTLockClient.weekly_schedules.get(Credential.of(entry))` before
+    treating a card as unrestricted.
     """
 
     card_id: bytes = field(repr=False)
@@ -32,10 +29,7 @@ class CardEntry:
 
         Derived from `end_date` being the sentinel value observed on every
         card examined so far that the app itself labels "Permanent". Says
-        nothing about
-        cyclic (day-of-week/time-range) restrictions - a permanent card
-        can still be cyclically restricted via a separate mechanism
-        this class doesn't cover; see the class docstring.
+        nothing about weekly windows - see `weekly_schedules.get`.
         """
         return self.end_date is None
 
