@@ -21,6 +21,8 @@ Public API:
     CyclicSchedule    — the day-of-week/time-window rule behind a CIRCLE passcode
     Validity          — when a credential is accepted: Permanent, Period, SingleUse or Weekly
     WeeklyWindow      — the hours a Weekly credential works on one weekday
+    PasscodeManager   — `TTLockClient.passcodes`: list, add, modify, delete, clear
+    AdminPasscodeManager — `TTLockClient.admin_passcode`: read and replace it
     TTLockError       — raised by `TTLockClient` on BLE / protocol failure
     LockRejectedError — the lock refused a command; `error_code` holds its reason
     CredentialAlreadyExistsError, CredentialNotFoundError, StorageFullError
@@ -48,6 +50,7 @@ from .constants import (
     PwdOperateType,
     Weekday,
 )
+from .credentials import AdminPasscodeManager, PasscodeManager
 from .exceptions import (
     CloudError,
     CredentialAlreadyExistsError,
@@ -85,6 +88,7 @@ from .models import (
 
 __all__ = [
     "CLOUD_APPS",
+    "AdminPasscodeManager",
     "AutoLockLimits",
     "AutoLockOperate",
     "CardEntry",
@@ -110,6 +114,7 @@ __all__ = [
     "LogEntry",
     "LogOperate",
     "PasscodeEntry",
+    "PasscodeManager",
     "Period",
     "Permanent",
     "PwdOperateType",

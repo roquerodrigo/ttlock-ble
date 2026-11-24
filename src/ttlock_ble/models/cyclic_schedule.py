@@ -24,12 +24,9 @@ class CyclicSchedule:
     the named presets above was never tested; whether it would follow a
     bitmask or something else entirely is unknown.
 
-    Assumes whole-hour durations and that the window ends on the same
-    minute it starts (`end_minute == start_minute` implicitly, since
-    there is no separate end_minute field) - every confirmed real example
-    started on the hour with a whole-hour duration. A schedule with a
-    non-zero start minute, or a fractional-hour duration, was never
-    tested and may not decode correctly.
+    Durations are whole hours and the window ends on the minute it starts:
+    there is no separate end-time field. A Monday-to-Friday window starting
+    at 08:30, written through `PasscodeManager.add`, read back exactly.
     """
 
     day_or_preset: str

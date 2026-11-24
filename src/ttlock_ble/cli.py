@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
 import json
 import logging
 import os
@@ -16,7 +17,7 @@ from dotenv import load_dotenv
 from ._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from .client import TTLockClient
 from .cloud import TTLockCloud
-from .constants import KeyboardPwdType, LockVolume
+from .constants import KeyboardPwdType, LockVolume, Weekday
 from .exceptions import CloudError
 from .models import (
     CLOUD_APPS,
@@ -29,7 +30,13 @@ from .models import (
     FingerprintEntry,
     LockSound,
     PasscodeEntry,
+    Period,
+    Permanent,
+    SingleUse,
+    Validity,
     VirtualKey,
+    Weekly,
+    WeeklyWindow,
 )
 
 if TYPE_CHECKING:
@@ -38,13 +45,73 @@ if TYPE_CHECKING:
 app = typer.Typer(add_completion=False, help="DLock-XP / TTLock BLE control")
 KEY_STORE = Path(os.environ.get("TTLOCK_KEY_STORE", "~/.ttlock/keys.json")).expanduser()
 
-# "custom" is the official app's own label for PERIOD; COUNT has no confirmed
-# trailer layout, so `get_passcodes` never yields it.
+# "custom" is the official app's own label for PERIOD.
 _PASSCODE_TYPE_LABELS = {
     KeyboardPwdType.PERMANENT: "permanent",
+    KeyboardPwdType.COUNT: "single-use",
     KeyboardPwdType.PERIOD: "custom",
     KeyboardPwdType.CIRCLE: "cyclic",
 }
+
+
+_DAY_GROUPS: dict[str, tuple[Weekday, ...]] = {
+    "daily": tuple(Weekday),
+    "workdays": tuple(day for day in Weekday if day < Weekday.SATURDAY),
+    "weekend": (Weekday.SATURDAY, Weekday.SUNDAY),
+}
+_DAY_NAMES = {day.name[:3].lower(): day for day in Weekday}
+
+
+def _parse_moment(value: str, option: str) -> dt.datetime:
+    try:
+        return dt.datetime.fromisoformat(value)
+    except ValueError:
+        raise typer.BadParameter(f"{option} must look like 2026-12-24T18:00") from None
+
+
+def _parse_days(value: str) -> tuple[Weekday, ...]:
+    if value in _DAY_GROUPS:
+        return _DAY_GROUPS[value]
+    try:
+        return tuple(_DAY_NAMES[name.strip()] for name in value.split(","))
+    except KeyError:
+        names = ", ".join([*_DAY_GROUPS, *_DAY_NAMES])
+        raise typer.BadParameter(f"--days takes {names}, or a comma-separated list") from None
+
+
+def _parse_time(value: str, option: str) -> dt.time:
+    try:
+        return dt.time.fromisoformat(value)
+    except ValueError:
+        raise typer.BadParameter(f"{option} must look like 17:30") from None
+
+
+def _passcode_validity(
+    *,
+    start: str | None,
+    end: str | None,
+    single_use: bool,
+    days: str | None,
+    window_start: str | None,
+    window_end: str | None,
+) -> Validity:
+    try:
+        if days is not None:
+            if window_start is None or window_end is None:
+                raise typer.BadParameter("--days needs --from and --to")
+            opens = _parse_time(window_start, "--from")
+            closes = _parse_time(window_end, "--to")
+            return Weekly(tuple(WeeklyWindow(day, opens, closes) for day in _parse_days(days)))
+        if start is None and end is None:
+            if single_use:
+                raise typer.BadParameter("--single-use needs --start and --end")
+            return Permanent()
+        if start is None or end is None:
+            raise typer.BadParameter("--start and --end go together")
+        kind = SingleUse if single_use else Period
+        return kind(_parse_moment(start, "--start"), _parse_moment(end, "--end"))
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from None
 
 
 def _load_env() -> tuple[str, str]:
@@ -330,14 +397,85 @@ def get_device_properties(
 def add_passcode(
     target: str = typer.Argument(..., help="lockId, alias, or MAC"),
     code: str = typer.Argument(..., help="4-9 digit passcode"),
+    start: str | None = typer.Option(None, help="valid from, lock-local ISO time"),
+    end: str | None = typer.Option(None, help="valid until, lock-local ISO time"),
+    single_use: bool = typer.Option(False, "--single-use", help="works once, between the dates"),
+    days: str | None = typer.Option(None, help="weekly: daily, workdays, weekend, or one day"),
+    window_start: str | None = typer.Option(None, "--from", help="weekly window start, HH:MM"),
+    window_end: str | None = typer.Option(None, "--to", help="weekly window end, HH:MM"),
     verbose: bool = typer.Option(False, "-v"),
 ) -> None:
-    """Provision a keypad passcode (requires an admin eKey)."""
+    """Create a keypad passcode: permanent, dated, single-use or weekly (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    validity = _passcode_validity(
+        start=start,
+        end=end,
+        single_use=single_use,
+        days=days,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    key = _resolve_key(target)
+    asyncio.run(_run_add_passcode(key, code, validity))
+    typer.echo(f"✓ passcode {code} added")
+
+
+@app.command("modify-passcode")
+def modify_passcode(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    code: str = typer.Argument(..., help="the passcode to change"),
+    new_code: str | None = typer.Option(None, help="replacement digits"),
+    start: str | None = typer.Option(None, help="new start, lock-local ISO time"),
+    end: str | None = typer.Option(None, help="new end, lock-local ISO time"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Change a passcode's digits and/or dates, keeping its type (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    validity: Period | None = None
+    if start is not None or end is not None:
+        dated = _passcode_validity(
+            start=start, end=end, single_use=False, days=None, window_start=None, window_end=None
+        )
+        validity = dated if isinstance(dated, Period) else None
+    if new_code is None and validity is None:
+        raise typer.BadParameter("give --new-code, or --start with --end")
+    key = _resolve_key(target)
+    asyncio.run(_run_modify_passcode(key, code, new_code, validity))
+    typer.echo(f"✓ passcode {new_code or code} updated")
+
+
+@app.command("get-admin-passcode")
+def get_admin_passcode(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Print the keypad admin passcode (admin eKey)."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    asyncio.run(_run_add_passcode(key, code))
-    typer.echo(f"✓ passcode {code} added")
+    typer.echo(asyncio.run(_run_get_admin_passcode(key)))
+
+
+@app.command("set-admin-passcode")
+def set_admin_passcode(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    code: str = typer.Argument(..., help="new 4-9 digit admin passcode"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Replace the keypad admin passcode (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    if not yes:
+        typer.confirm(
+            f"Replace the admin passcode of {key.lockAlias or key.lockMac}?",
+            abort=True,
+        )
+    asyncio.run(_run_set_admin_passcode(key, code))
+    typer.echo("✓ admin passcode updated")
 
 
 @app.command("delete-passcode")
@@ -545,14 +683,31 @@ async def _run_get_device_properties(key: VirtualKey) -> DeviceProperties:
         return await c.get_device_properties()
 
 
-async def _run_add_passcode(key: VirtualKey, code: str) -> None:
+async def _run_add_passcode(key: VirtualKey, code: str, validity: Validity) -> None:
     async with TTLockClient(key) as c:
-        await c.add_passcode(code)
+        await c.passcodes.add(code, validity)
+
+
+async def _run_modify_passcode(
+    key: VirtualKey, code: str, new_code: str | None, validity: Period | None
+) -> None:
+    async with TTLockClient(key) as c:
+        await c.passcodes.modify(code, new_code=new_code, validity=validity)
+
+
+async def _run_get_admin_passcode(key: VirtualKey) -> str:
+    async with TTLockClient(key) as c:
+        return await c.admin_passcode.get()
+
+
+async def _run_set_admin_passcode(key: VirtualKey, code: str) -> None:
+    async with TTLockClient(key) as c:
+        await c.admin_passcode.set(code)
 
 
 async def _run_delete_passcode(key: VirtualKey, code: str) -> None:
     async with TTLockClient(key) as c:
-        await c.delete_passcode(code)
+        await c.passcodes.delete(code)
 
 
 async def _run_clear_passcodes(key: VirtualKey) -> None:
