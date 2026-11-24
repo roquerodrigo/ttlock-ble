@@ -21,7 +21,17 @@ from .auto_lock import (
     payload_auto_lock_search,
     payload_auto_lock_set,
 )
-from .card import parse_card_list_response, payload_card_list
+from .card import (
+    check_card_validity,
+    parse_card_enrollment_reply,
+    parse_card_list_response,
+    payload_card_add,
+    payload_card_clear,
+    payload_card_delete,
+    payload_card_enroll,
+    payload_card_list,
+    payload_card_modify,
+)
 from .clock import parse_get_lock_time_response, payload_get_lock_time, payload_time_calibrate
 from .control import (
     LOCKED,
@@ -139,11 +149,13 @@ __all__ = [
     "START_DATE_SENTINEL",
     "UNLOCKED",
     "VENDOR",
+    "check_card_validity",
     "check_passcode",
     "encode_passcode_cycle",
     "parse_admin_passcode",
     "parse_auto_lock_limits_response",
     "parse_auto_lock_response",
+    "parse_card_enrollment_reply",
     "parse_card_list_response",
     "parse_check_admin_response",
     "parse_check_user_time_response",
@@ -161,7 +173,12 @@ __all__ = [
     "parse_state_battery",
     "payload_auto_lock_search",
     "payload_auto_lock_set",
+    "payload_card_add",
+    "payload_card_clear",
+    "payload_card_delete",
+    "payload_card_enroll",
     "payload_card_list",
+    "payload_card_modify",
     "payload_check_admin",
     "payload_check_random",
     "payload_check_user_time",

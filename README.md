@@ -5,7 +5,7 @@
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/roquerodrigo)
 
-Async Python SDK for controlling **TTLock-family smart locks** (TTLock / DLock-XP) over **Bluetooth Low Energy** — lock, unlock, state and battery, keypad passcodes, enrolled fingerprints, auto-lock, sound, clock sync, device properties, on-device operation log, and real-time push events, with no cloud round-trip on every operation.
+Async Python SDK for controlling **TTLock-family smart locks** (TTLock / DLock-XP) over **Bluetooth Low Energy** — lock, unlock, state and battery, keypad passcodes, IC cards, enrolled fingerprints, auto-lock, sound, clock sync, device properties, on-device operation log, and real-time push events, with no cloud round-trip on every operation.
 
 > ⚠️ **Unofficial.** Not affiliated with, endorsed by, or supported by TTLock / Sciener
 > or any lock vendor. It speaks the BLE V3 protocol and the cloud API the official
@@ -181,7 +181,12 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock set-auto-lock <lock> <seconds>` | Admin eKey | Set the auto-lock delay in seconds (`0` disables it) |
 | `ttlock get-auto-lock-limits <lock>` | Admin eKey | Show the min/max auto-lock delay this lock accepts |
 | `ttlock get-fingerprints <lock>` | Admin eKey | List enrolled fingerprints — blind to cyclic (day-of-week / time-range) restrictions |
-| `ttlock get-cards <lock>` | Admin eKey | List enrolled IC cards/tags — blind to cyclic (day-of-week / time-range) restrictions |
+| `ttlock get-cards <lock>` | Admin eKey | List enrolled IC cards/tags with their number — blind to cyclic (day-of-week / time-range) restrictions, see `get-schedule` |
+| `ttlock enroll-card <lock>` | Admin eKey | Enroll a card by tapping it on the lock (asks you to present it): permanent by default, `--start`/`--end` for a dated one, `--days`/`--from`/`--to` (optionally with dates) for a weekly one; `--timeout` sets how long to wait |
+| `ttlock add-card <lock> <number>` | Admin eKey | Add a card by its decimal number, same validity options; adding one the lock holds is answered with success |
+| `ttlock modify-card <lock> <number>` | Admin eKey | Replace a card's dates and weekly windows: `--permanent`, or the validity options |
+| `ttlock delete-card <lock> <number>` | Admin eKey | Remove one card; asks first, `--yes`/`-y` skips the question |
+| `ttlock clear-cards <lock>` | Admin eKey | Remove EVERY card from the lock — no undo; asks first, `--yes`/`-y` skips the question |
 
 Every BLE command takes `-v` for debug logging. `<lock>` is a `lockId`, alias or MAC from
 `ttlock list`.
@@ -215,7 +220,12 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `weekly_schedules.set(credential, windows)` / `weekly_schedules.clear(credential)` | Admin eKey | Replace / remove those windows; the credential's validity dates stay as they are |
 | `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Admin eKey | Earlier string-based passcode calls, kept for compatibility |
 | `get_fingerprints()` | Admin eKey | Enrolled fingerprints (`list[FingerprintEntry]`); their weekly windows come from `weekly_schedules.get` |
-| `get_cards()` | Admin eKey | Enrolled IC cards/tags (`list[CardEntry]`); their weekly windows come from `weekly_schedules.get` |
+| `cards.list(include_weekly_windows=True)` | Admin eKey | Enrolled IC cards with their weekly windows (`list[CardEntry]`); a card without windows costs a short timeout and a reconnect, so pass `False` for a fast listing |
+| `cards.enroll(validity, on_progress, timeout=…)` | Admin eKey, `IC` | Enroll the card tapped on the lock; `Permanent()` (default), `Period` or `Weekly`; raises `EnrollmentTimeoutError` if none comes, and deletes the card again if its validity cannot be applied |
+| `cards.add(card, validity)` | Admin eKey, `IC` | Add a card by its `Credential.card(number)`, without tapping; a card the lock already holds is answered with success |
+| `cards.modify(card, validity)` | Admin eKey, `IC` | Change a card's dates and weekly windows |
+| `cards.delete(card)` / `cards.clear()` | Admin eKey, `IC` | Remove one card / every card |
+| `get_cards()` | Admin eKey | Enrolled IC cards/tags (`list[CardEntry]`) without their weekly windows, as `cards.list(include_weekly_windows=False)` |
 | `get_lock_sound()` | Admin eKey | Beep on/off and volume as the lock reports them (`LockSound`; `volume` is `None` on beeper-only hardware) |
 | `set_lock_sound(enabled)` | Admin eKey | Turn the keypad/lock beep on or off |
 | `set_lock_volume(level)` | Admin eKey | Set the keypad/lock beep volume, 1-5 or `LockVolume` (no-op on beeper-only hardware) |
@@ -239,7 +249,7 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 ### Models & enums
 
-- **Managers:** `PasscodeManager` (`client.passcodes`), `AdminPasscodeManager` (`client.admin_passcode`), `WeeklyScheduleManager` (`client.weekly_schedules`)
+- **Managers:** `PasscodeManager` (`client.passcodes`), `AdminPasscodeManager` (`client.admin_passcode`), `WeeklyScheduleManager` (`client.weekly_schedules`), `CardManager` (`client.cards`)
 - **Credential:** `Credential.card(number)`, `Credential.fingerprint(identifier)` or `Credential.of(entry)` names a card or fingerprint for the managers
 - **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `CloudApp` (presets in `CLOUD_APPS`), `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `DeviceFeatures`, `AutoLockLimits`, `LockSound`, `FingerprintEntry`, `CardEntry`, `PasscodeEntry`, `CyclicSchedule`
 - **Validity:** `Validity` is one of `Permanent()`, `Period(start, end)`, `SingleUse(start, end)` or `Weekly(windows, start=None, end=None)`, where each `WeeklyWindow(weekday, start, end)` covers one `Weekday` and the optional bounds limit the windows to a date range. Dates are the lock's **local** time, to the minute, between 2000 and 2099

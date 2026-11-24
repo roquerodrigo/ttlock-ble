@@ -10,6 +10,7 @@ c` and use the symbols directly in UI / event mapping code.
 from __future__ import annotations
 
 from .auto_lock_operate import AutoLockOperate
+from .card_enrollment_step import CardEnrollmentStep
 from .credential_type import CredentialType
 from .keyboard_pwd_type import KeyboardPwdType
 from .lock_error_code import LockErrorCode
@@ -23,6 +24,7 @@ from .weekday import Weekday
 
 __all__ = [
     "AutoLockOperate",
+    "CardEnrollmentStep",
     "CredentialType",
     "KeyboardPwdType",
     "LockErrorCode",

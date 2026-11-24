@@ -21,6 +21,7 @@ Public API:
     CyclicSchedule    — the day-of-week/time-window rule behind a CIRCLE passcode
     Validity          — when a credential is accepted: Permanent, Period, SingleUse or Weekly
     WeeklyWindow      — the hours a Weekly credential works on one weekday
+    CardManager       — `TTLockClient.cards`: list, enroll, add, modify, delete, clear
     PasscodeManager   — `TTLockClient.passcodes`: list, add, modify, delete, clear
     AdminPasscodeManager — `TTLockClient.admin_passcode`: read and replace it
     WeeklyScheduleManager — `TTLockClient.weekly_schedules`: card and fingerprint windows
@@ -31,11 +32,13 @@ Public API:
                       — the refusals a credential command can map to
     UnsupportedFeatureError — the lock's feature mask lacks what a command needs
     ReplyTimeoutError — the lock did not answer a command in time
+    EnrollmentTimeoutError — no card was presented while the lock waited for one
+    CardPresentedLateError — a card was tapped after the timeout and was removed again
     CloudError        — raised by `TTLockCloud` on a non-success HTTP response
 
 IntEnums:
-    AutoLockOperate, CredentialType, KeyboardPwdType, LockErrorCode, LockFeature, LockState,
-    LockVolume, LogOperate, PwdOperateType, Weekday
+    AutoLockOperate, CardEnrollmentStep, CredentialType, KeyboardPwdType, LockErrorCode,
+    LockFeature, LockState, LockVolume, LogOperate, PwdOperateType, Weekday
 """
 
 from __future__ import annotations
@@ -44,6 +47,7 @@ from .client import TTLockClient
 from .cloud import TTLockCloud
 from .constants import (
     AutoLockOperate,
+    CardEnrollmentStep,
     CredentialType,
     KeyboardPwdType,
     LockErrorCode,
@@ -54,11 +58,13 @@ from .constants import (
     PwdOperateType,
     Weekday,
 )
-from .credentials import AdminPasscodeManager, PasscodeManager, WeeklyScheduleManager
+from .credentials import AdminPasscodeManager, CardManager, PasscodeManager, WeeklyScheduleManager
 from .exceptions import (
+    CardPresentedLateError,
     CloudError,
     CredentialAlreadyExistsError,
     CredentialNotFoundError,
+    EnrollmentTimeoutError,
     LockRejectedError,
     ReplyTimeoutError,
     StorageFullError,
@@ -97,7 +103,10 @@ __all__ = [
     "AdminPasscodeManager",
     "AutoLockLimits",
     "AutoLockOperate",
+    "CardEnrollmentStep",
     "CardEntry",
+    "CardManager",
+    "CardPresentedLateError",
     "CloudApp",
     "CloudError",
     "Credential",
@@ -108,6 +117,7 @@ __all__ = [
     "DeviceFeatures",
     "DeviceInfo",
     "DeviceProperties",
+    "EnrollmentTimeoutError",
     "FingerprintEntry",
     "KeyboardPwdType",
     "LockAdvertisement",
