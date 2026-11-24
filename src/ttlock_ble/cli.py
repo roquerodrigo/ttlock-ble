@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import typer
 from dotenv import load_dotenv
 
+from . import commands as cmd
 from ._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from .client import TTLockClient
 from .cloud import TTLockCloud
@@ -40,6 +41,8 @@ from .models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .constants import LockState
 
 app = typer.Typer(add_completion=False, help="DLock-XP / TTLock BLE control")
@@ -110,6 +113,14 @@ def _passcode_validity(
             raise typer.BadParameter("--start and --end go together")
         kind = SingleUse if single_use else Period
         return kind(_parse_moment(start, "--start"), _parse_moment(end, "--end"))
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from None
+
+
+def _validate[T](build: Callable[[], T]) -> T:
+    """Run a payload builder before connecting, so bad input is a usage error."""
+    try:
+        return build()
     except ValueError as error:
         raise typer.BadParameter(str(error)) from None
 
@@ -416,6 +427,10 @@ def add_passcode(
         window_start=window_start,
         window_end=window_end,
     )
+    if isinstance(validity, Weekly):
+        _validate(lambda: cmd.payload_passcode_recover_weekly(code, validity))
+    else:
+        _validate(lambda: cmd.payload_passcode_create(code, validity))
     key = _resolve_key(target)
     asyncio.run(_run_add_passcode(key, code, validity))
     typer.echo(f"✓ passcode {code} added")
@@ -441,6 +456,7 @@ def modify_passcode(
         validity = dated if isinstance(dated, Period) else None
     if new_code is None and validity is None:
         raise typer.BadParameter("give --new-code, or --start with --end")
+    _validate(lambda: cmd.payload_passcode_modify(code, new_code=new_code, validity=validity))
     key = _resolve_key(target)
     asyncio.run(_run_modify_passcode(key, code, new_code, validity))
     typer.echo(f"✓ passcode {new_code or code} updated")
@@ -468,6 +484,7 @@ def set_admin_passcode(
     """Replace the keypad admin passcode (admin eKey)."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
+    _validate(lambda: cmd.payload_set_admin_passcode(code))
     key = _resolve_key(target)
     if not yes:
         typer.confirm(
@@ -484,9 +501,10 @@ def delete_passcode(
     code: str = typer.Argument(..., help="passcode to remove"),
     verbose: bool = typer.Option(False, "-v"),
 ) -> None:
-    """Remove a keypad passcode previously added via add-passcode (requires an admin eKey)."""
+    """Remove a keypad passcode (requires an admin eKey)."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
+    _validate(lambda: cmd.check_passcode(code))
     key = _resolve_key(target)
     asyncio.run(_run_delete_passcode(key, code))
     typer.echo(f"✓ passcode {code} removed")

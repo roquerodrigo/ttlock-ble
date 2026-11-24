@@ -762,7 +762,7 @@ class TTLockClient:
         action: str,
         *,
         on_reply: ReplyHandler | None = None,
-        timeout: float = DEFAULT_RECV_TIMEOUT,  # noqa: ASYNC109 -- forwarded to the transport, which owns the deadline
+        timeout: float | None = None,  # noqa: ASYNC109 -- forwarded to the transport, which owns the deadline
     ) -> bytes:
         """Send one credential command inside an admin session and return the final reply's data.
 
@@ -801,7 +801,9 @@ class TTLockClient:
             return True
 
         await self._transport.exchange(
-            self._frame(opcode, payload), timeout=timeout, until=is_final
+            self._frame(opcode, payload),
+            timeout=DEFAULT_RECV_TIMEOUT if timeout is None else timeout,
+            until=is_final,
         )
         log.info("%s accepted by the lock", action)
         return final_data
@@ -1027,8 +1029,8 @@ class TTLockClient:
 
         `get_passcodes` runs it too, even though it is a read: unlike
         the rejections above, this one is by design rather than
-        confirmed via testing without the handshake - see its own
-        docstring.
+        confirmed via testing without the handshake. So does every
+        credential manager, through `AdminChannel.session`.
 
         `get_cards` requires it too, confirmed by testing: an IC_SEARCH
         query sent on a fresh connection without this handshake was
