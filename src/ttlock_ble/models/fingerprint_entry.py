@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -21,8 +21,8 @@ class FingerprintEntry:
     as confirmation a fingerprint is unrestricted.
     """
 
-    fingerprint_id: bytes
-    slot: int
+    fingerprint_id: bytes = field(repr=False)
+    slot: int = field(repr=False)
     start_date: dt.datetime | None
     end_date: dt.datetime | None
 

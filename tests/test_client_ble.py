@@ -111,6 +111,7 @@ class FakeBleakClient:
         self._notify_cb: Callable[[object, bytearray], None] | None = None
         self.written: list[bytes] = []
         self.reply_for_next: list[Frame | list[Frame]] = []
+        self._outgoing = FrameReassembler()
         self.read_uuids: list[str] = []
         self.disconnected = False
         self.stopped_notify = False
@@ -132,6 +133,8 @@ class FakeBleakClient:
     async def write_gatt_char(self, _char: object, data: bytes, *, response: bool) -> None:  # noqa: ARG002 -- matches bleak's signature; callers pass response= by keyword
         self.written.append(bytes(data))
         # Once the full frame is written, deliver the queued reply via notify.
+        if not self._outgoing.feed(bytes(data)):
+            return
         if self.reply_for_next and self._notify_cb is not None:
             reply = self.reply_for_next.pop(0)
             for frame in reply if isinstance(reply, list) else [reply]:

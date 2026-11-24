@@ -26,7 +26,7 @@ class WeeklyWindow:
 
     def __post_init__(self) -> None:
         """Reject a weekday or time range the lock cannot store."""
-        Weekday(self.weekday)
+        object.__setattr__(self, "weekday", Weekday(self.weekday))
         if _minutes(self.start) >= _minutes(self.end):
             raise ValueError("weekly window must start before it ends, on the same day")
 

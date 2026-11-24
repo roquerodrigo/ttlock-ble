@@ -58,6 +58,9 @@ log: logging.Logger = logging.getLogger("ttlock_ble.client")
 _MAX_FINGERPRINT_ENTRIES = 300
 _MAX_PASSCODE_ENTRIES = 300
 _MAX_CARD_ENTRIES = 300
+# Each "command received" restarts the reply deadline, so a lock repeating it
+# would otherwise keep a command waiting forever.
+_MAX_ACKNOWLEDGEMENTS = 5
 
 
 class TTLockClient:
@@ -810,14 +813,20 @@ class TTLockClient:
         fingerprint ids.
         """
         final_data = b""
+        acknowledgements = 0
 
         def is_final(candidate: Frame) -> bool:
-            nonlocal final_data
+            nonlocal final_data, acknowledgements
             plain = self._decrypt_response(candidate, action)
             _echo, status, data = self._parse_response_envelope(plain, action)
             if status != cmd.RESPONSE_SUCCESS:
                 error_code = data[0] if data else None
                 if error_code == LockErrorCode.COMMAND_RECEIVED:
+                    acknowledgements += 1
+                    if acknowledgements > _MAX_ACKNOWLEDGEMENTS:
+                        raise TTLockError(
+                            f"Failed to {action}: lock kept acknowledging without a result"
+                        )
                     log.debug("%s acknowledged by the lock; waiting for the result", action)
                     return False
                 raise rejection_error(action, error_code)

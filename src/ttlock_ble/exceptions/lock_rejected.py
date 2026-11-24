@@ -15,6 +15,10 @@ class LockRejectedError(TTLockError):
         self.error_code = error_code
         super().__init__(f"Failed to {action}: lock rejected the command {_describe(error_code)}")
 
+    def __reduce__(self) -> tuple[type[LockRejectedError], tuple[str, int | None]]:
+        """Rebuild from the constructor arguments, so the error survives pickling and copying."""
+        return type(self), (self.action, self.error_code)
+
 
 def _describe(error_code: int | None) -> str:
     if error_code is None:

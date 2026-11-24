@@ -114,3 +114,8 @@ def test_encode_date5_round_trips_through_decode() -> None:
 def test_encode_date5_rejects_years_a_byte_cannot_hold() -> None:
     with pytest.raises(ValueError, match="2000-2099"):
         encode_date5(_START.replace(year=2100))
+
+
+def test_window_stores_a_weekday_given_as_int() -> None:
+    window = WeeklyWindow(2, dt.time(8, 0), dt.time(9, 0))  # type: ignore[arg-type]
+    assert window.weekday is Weekday.TUESDAY

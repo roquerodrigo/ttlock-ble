@@ -18,3 +18,7 @@ class UnsupportedFeatureError(TTLockError):
         self.action = action
         self.feature = feature
         super().__init__(f"Failed to {action}: lock does not support {feature.name}")
+
+    def __reduce__(self) -> tuple[type[UnsupportedFeatureError], tuple[str, LockFeature]]:
+        """Rebuild from the constructor arguments, so the error survives pickling and copying."""
+        return type(self), (self.action, self.feature)
