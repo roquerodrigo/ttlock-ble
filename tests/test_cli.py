@@ -23,6 +23,7 @@ from ttlock_ble import (
     AutoLockLimits,
     CardEntry,
     CloudApp,
+    Credential,
     CyclicSchedule,
     DeviceFeatures,
     DeviceInfo,
@@ -647,6 +648,135 @@ class TestBleCommands:
         assert result.exit_code != 0
         client.admin_passcode.set.assert_not_awaited()
 
+    def test_get_schedule_of_a_card(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.weekly_schedules.get = AsyncMock(
+            return_value=(WeeklyWindow(Weekday.MONDAY, dt.time(8), dt.time(12)),)
+        )
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-schedule", "2", "--card", "6195714b", "-v"])
+        assert result.exit_code == 0, result.output
+        assert "Monday    08:00-12:00" in result.output
+        client.weekly_schedules.get.assert_awaited_once_with(Credential.card(0x6195714B))
+
+    def test_get_schedule_without_windows(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.weekly_schedules.get = AsyncMock(return_value=())
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(
+            cli_module.app, ["get-schedule", "2", "--fingerprint", "0001e2400003"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "no weekly windows" in result.output
+        client.weekly_schedules.get.assert_awaited_once_with(
+            Credential.fingerprint(bytes.fromhex("0001e2400003"))
+        )
+
+    @pytest.mark.parametrize(
+        ("options", "message"),
+        [
+            ([], "exactly one of --card or --fingerprint"),
+            (["--card", "1", "--fingerprint", "0001e2400003"], "exactly one"),
+            (["--card", "zz"], "credential id"),
+            (["--fingerprint", "0001"], "6 bytes"),
+        ],
+    )
+    def test_get_schedule_needs_one_valid_credential(self, cli_app, options, message) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        assert message in _usage_error(cli_module.app, ["get-schedule", "2", *options])
+
+    def test_set_schedule(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.weekly_schedules.set = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(
+            cli_module.app,
+            [
+                "set-schedule",
+                "2",
+                "--card",
+                "6195714b",
+                "--window",
+                "weekend=09:00-12:00",
+                "--window",
+                "thu=18:30-22:00",
+                "-v",
+            ],
+            input="y\n",
+        )
+        assert result.exit_code == 0, result.output
+        assert "card 6195714b" in result.output
+        assert "3 weekly window(s) set" in result.output
+        client.weekly_schedules.set.assert_awaited_once_with(
+            Credential.card(0x6195714B),
+            (
+                WeeklyWindow(Weekday.SATURDAY, dt.time(9), dt.time(12)),
+                WeeklyWindow(Weekday.SUNDAY, dt.time(9), dt.time(12)),
+                WeeklyWindow(Weekday.THURSDAY, dt.time(18, 30), dt.time(22)),
+            ),
+        )
+
+    @pytest.mark.parametrize(
+        ("window", "message"),
+        [
+            ("monday 8-12", "mon=08:00-12:00"),
+            ("mon=12:00-08:00", "same day"),
+            ("mon=8h-12:00", "17:30"),
+        ],
+    )
+    def test_set_schedule_rejects_bad_windows(self, cli_app, window, message) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        arguments = ["set-schedule", "2", "--card", "1", "--window", window, "--yes"]
+        assert message in _usage_error(cli_module.app, arguments)
+
+    def test_set_schedule_aborts_without_confirmation(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.weekly_schedules.set = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(
+            cli_module.app,
+            ["set-schedule", "2", "--card", "1", "--window", "mon=08:00-09:00"],
+            input="n\n",
+        )
+        assert result.exit_code != 0
+        client.weekly_schedules.set.assert_not_awaited()
+
+    def test_clear_schedule(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.weekly_schedules.clear = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(
+            cli_module.app,
+            ["clear-schedule", "2", "--fingerprint", "0001e2400003", "-v"],
+            input="y\n",
+        )
+        assert result.exit_code == 0, result.output
+        assert "fingerprint 0001e2400003" in result.output
+        assert "weekly windows removed" in result.output
+        client.weekly_schedules.clear.assert_awaited_once()
+
+    def test_clear_schedule_skips_the_prompt_with_yes(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.weekly_schedules.clear = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["clear-schedule", "2", "--card", "1", "-y"])
+        assert result.exit_code == 0, result.output
+        client.weekly_schedules.clear.assert_awaited_once_with(Credential.card(1))
+
     def test_delete_passcode(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
         _write_keys(store)
@@ -801,11 +931,11 @@ class TestBleCommands:
         self._patch_client(cli_module, monkeypatch, client)
         result = runner.invoke(cli_module.app, ["get-fingerprints", "2", "-v"])
         assert result.exit_code == 0, result.output
-        assert "slot=1" in result.output
+        assert "id=0000002a0001" in result.output
         assert "end=permanent" in result.output
-        assert "slot=2" in result.output
+        assert "id=0000002b0002" in result.output
         assert "start=not set" in result.output
-        assert "cyclic" in result.output
+        assert "get-schedule" in result.output
 
     def test_get_fingerprints_empty(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
@@ -842,7 +972,7 @@ class TestBleCommands:
         assert "end=permanent" in result.output
         assert "id=11223345" in result.output
         assert "start=not set" in result.output
-        assert "cyclic" in result.output
+        assert "get-schedule" in result.output
 
     def test_get_cards_empty(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app

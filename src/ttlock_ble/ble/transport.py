@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from bleak.exc import BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
-from ..exceptions import TTLockError
+from ..exceptions import ReplyTimeoutError, TTLockError
 from ..protocol import FrameReassembler
 from .constants import (
     BLE_WRITE_CHUNK,
@@ -179,11 +179,11 @@ class BleTransport:
             while True:
                 remaining = deadline - loop.time()
                 if remaining <= 0:
-                    raise TTLockError(msg)
+                    raise ReplyTimeoutError(msg)
                 try:
                     candidate = await asyncio.wait_for(self._inbox.get(), timeout=remaining)
                 except TimeoutError as exc:
-                    raise TTLockError(msg) from exc
+                    raise ReplyTimeoutError(msg) from exc
                 if self._is_response(candidate, frame.command):
                     if until is None or until(candidate):
                         return candidate

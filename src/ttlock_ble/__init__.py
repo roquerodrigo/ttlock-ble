@@ -23,16 +23,19 @@ Public API:
     WeeklyWindow      — the hours a Weekly credential works on one weekday
     PasscodeManager   — `TTLockClient.passcodes`: list, add, modify, delete, clear
     AdminPasscodeManager — `TTLockClient.admin_passcode`: read and replace it
+    WeeklyScheduleManager — `TTLockClient.weekly_schedules`: card and fingerprint windows
+    Credential        — a card or fingerprint as the lock addresses it
     TTLockError       — raised by `TTLockClient` on BLE / protocol failure
     LockRejectedError — the lock refused a command; `error_code` holds its reason
     CredentialAlreadyExistsError, CredentialNotFoundError, StorageFullError
                       — the refusals a credential command can map to
     UnsupportedFeatureError — the lock's feature mask lacks what a command needs
+    ReplyTimeoutError — the lock did not answer a command in time
     CloudError        — raised by `TTLockCloud` on a non-success HTTP response
 
 IntEnums:
-    AutoLockOperate, KeyboardPwdType, LockErrorCode, LockFeature, LockState, LockVolume,
-    LogOperate, PwdOperateType, Weekday
+    AutoLockOperate, CredentialType, KeyboardPwdType, LockErrorCode, LockFeature, LockState,
+    LockVolume, LogOperate, PwdOperateType, Weekday
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ from .client import TTLockClient
 from .cloud import TTLockCloud
 from .constants import (
     AutoLockOperate,
+    CredentialType,
     KeyboardPwdType,
     LockErrorCode,
     LockFeature,
@@ -50,12 +54,13 @@ from .constants import (
     PwdOperateType,
     Weekday,
 )
-from .credentials import AdminPasscodeManager, PasscodeManager
+from .credentials import AdminPasscodeManager, PasscodeManager, WeeklyScheduleManager
 from .exceptions import (
     CloudError,
     CredentialAlreadyExistsError,
     CredentialNotFoundError,
     LockRejectedError,
+    ReplyTimeoutError,
     StorageFullError,
     TTLockError,
     UnsupportedFeatureError,
@@ -65,6 +70,7 @@ from .models import (
     AutoLockLimits,
     CardEntry,
     CloudApp,
+    Credential,
     CyclicSchedule,
     DeviceFeatures,
     DeviceInfo,
@@ -94,8 +100,10 @@ __all__ = [
     "CardEntry",
     "CloudApp",
     "CloudError",
+    "Credential",
     "CredentialAlreadyExistsError",
     "CredentialNotFoundError",
+    "CredentialType",
     "CyclicSchedule",
     "DeviceFeatures",
     "DeviceInfo",
@@ -118,6 +126,7 @@ __all__ = [
     "Period",
     "Permanent",
     "PwdOperateType",
+    "ReplyTimeoutError",
     "SingleUse",
     "SiteInfo",
     "StorageFullError",
@@ -129,5 +138,6 @@ __all__ = [
     "VirtualKey",
     "Weekday",
     "Weekly",
+    "WeeklyScheduleManager",
     "WeeklyWindow",
 ]

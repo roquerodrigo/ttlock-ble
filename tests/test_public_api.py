@@ -21,8 +21,10 @@ EXPECTED_EXPORTS = frozenset(
         "CLOUD_APPS",
         "CloudApp",
         "CloudError",
+        "Credential",
         "CredentialAlreadyExistsError",
         "CredentialNotFoundError",
+        "CredentialType",
         "CyclicSchedule",
         "DeviceFeatures",
         "DeviceInfo",
@@ -45,6 +47,7 @@ EXPECTED_EXPORTS = frozenset(
         "Period",
         "Permanent",
         "PwdOperateType",
+        "ReplyTimeoutError",
         "SingleUse",
         "SiteInfo",
         "StorageFullError",
@@ -56,6 +59,7 @@ EXPECTED_EXPORTS = frozenset(
         "VirtualKey",
         "Weekday",
         "Weekly",
+        "WeeklyScheduleManager",
         "WeeklyWindow",
     }
 )
@@ -94,6 +98,7 @@ EXPECTED_CLIENT_MEMBERS = frozenset(
         "set_lock_volume",
         "sync_time",
         "unlock",
+        "weekly_schedules",
     }
 )
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import IntEnum
+from ...constants import CredentialType
 
 _FINGERPRINT_ID_LENGTH = 4
 _SLOT_MAX = 0xFFFF
@@ -14,12 +14,14 @@ _CARD_LONG_LENGTH = 8
 FINGERPRINT_CREDENTIAL_ID_LENGTH = 6
 CARD_CREDENTIAL_ID_LENGTHS = (_CARD_SHORT_LENGTH, _CARD_LONG_LENGTH)
 
-
-class CredentialType(IntEnum):
-    """Credential type byte of the weekly-schedule command."""
-
-    FINGERPRINT = 1
-    CARD = 2
+__all__ = [
+    "CARD_CREDENTIAL_ID_LENGTHS",
+    "FINGERPRINT_CREDENTIAL_ID_LENGTH",
+    "CredentialType",
+    "card_credential_id",
+    "fingerprint_credential_id",
+    "validate_credential",
+]
 
 
 def fingerprint_credential_id(fingerprint_id: bytes, slot: int) -> bytes:
