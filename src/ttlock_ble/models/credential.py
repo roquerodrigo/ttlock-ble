@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ..constants import CredentialType
@@ -23,15 +23,19 @@ class Credential:
 
     Build one with `card`, `fingerprint` or `of` rather than directly; the
     constructor only checks that `identifier` has a length the lock uses
-    for `kind`.
+    for `credential_type`. Two values are equal only when their bytes are,
+    so a card listed with an 8-byte id equals `of(entry)`, not
+    `card(number)`, which picks 4 bytes for any number that fits. The id
+    never appears in `repr`: it is enough to clone a card.
     """
 
-    kind: CredentialType
-    identifier: bytes
+    credential_type: CredentialType
+    identifier: bytes = field(repr=False)
 
     def __post_init__(self) -> None:
         """Reject an identifier whose length the lock does not use for `kind`."""
-        kind = CredentialType(self.kind)
+        kind = CredentialType(self.credential_type)
+        object.__setattr__(self, "credential_type", kind)
         valid = (
             (_FINGERPRINT_ID_LENGTH,) if kind == CredentialType.FINGERPRINT else _CARD_ID_LENGTHS
         )
@@ -43,7 +47,11 @@ class Credential:
 
     @classmethod
     def card(cls, number: int) -> Credential:
-        """Address the card with this number: 4 bytes on the wire, 8 above 0xFFFFFFFF."""
+        """Address the card with this number: 4 bytes on the wire, 8 above 0xFFFFFFFF.
+
+        For a card the lock lists with an 8-byte id, use `of(entry)` or
+        build the value from those exact bytes instead.
+        """
         if not 0 <= number <= _LONG_CARD_MAX:
             raise ValueError("card number must fit in 8 bytes")
         length = _CARD_ID_LENGTHS[0] if number <= _SHORT_CARD_MAX else _CARD_ID_LENGTHS[1]
@@ -64,6 +72,6 @@ class Credential:
     @property
     def card_number(self) -> int | None:
         """The card's number, or `None` for a fingerprint."""
-        if self.kind != CredentialType.CARD:
+        if self.credential_type != CredentialType.CARD:
             return None
         return int.from_bytes(self.identifier, "big")

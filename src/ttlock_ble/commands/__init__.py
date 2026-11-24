@@ -79,6 +79,7 @@ from .opcodes import (
     CMD_SWITCH,
     CMD_TIME_CALIBRATE,
     CMD_UNLOCK,
+    CMD_WEEKLY_SCHEDULE,
 )
 from .operate_log import parse_operate_log_response, payload_operate_log_request
 from .passcode import (
@@ -130,6 +131,7 @@ __all__ = [
     "CMD_SWITCH",
     "CMD_TIME_CALIBRATE",
     "CMD_UNLOCK",
+    "CMD_WEEKLY_SCHEDULE",
     "END_DATE_SENTINEL",
     "LOCKED",
     "RESPONSE_FAILED",

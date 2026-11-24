@@ -503,7 +503,7 @@ class TestExchangeRouting:
             client._transport._inbox.put_nowait(push)
 
         client._transport.send = fake_send  # type: ignore[method-assign]
-        with pytest.raises(TTLockError, match="Timed out waiting"):
+        with pytest.raises(TTLockError, match="timed out after"):
             await client._transport.exchange(request, timeout=0.05)
 
     async def test_an_undecodable_frame_is_passed_through(self):

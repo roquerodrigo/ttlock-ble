@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import weakref
 from typing import TYPE_CHECKING
 
 from bleak.exc import BleakError
@@ -78,6 +79,7 @@ class BleTransport:
         self._reassembler = FrameReassembler()
         self._inbox: asyncio.Queue[Frame] = asyncio.Queue()
         self._waiting_for_response = 0
+        self._replaced_clients: weakref.WeakSet[BleakClient] = weakref.WeakSet()
 
     @property
     def is_connected(self) -> bool:
@@ -112,7 +114,7 @@ class BleTransport:
                 BleakClientWithServiceCache,
                 self.device,
                 self.display_name,
-                disconnected_callback=self.disconnected_callback,
+                disconnected_callback=self._on_disconnected,
                 use_services_cache=True,
                 max_attempts=CONNECT_RETRIES,
             )
@@ -120,8 +122,32 @@ class BleTransport:
             raise TTLockError(f"Failed to connect to lock over BLE: {exc}") from exc
         await self._discover_chars()
         assert self._notify_char is not None
-        await self._client.start_notify(self._notify_char, self._on_notify)
+        try:
+            await self._client.start_notify(self._notify_char, self._on_notify)
+        except Exception as exc:
+            raise TTLockError(f"Failed to subscribe to lock notifications: {exc}") from exc
         log.info("Connected to %s (%s)", self.display_name, self.address)
+
+    async def reconnect(self) -> None:
+        """Replace the link with a fresh one, for a lock that stopped answering on it.
+
+        The caller's `disconnected_callback` does not fire for the link
+        being replaced - the session goes on - and whatever the old link
+        left half-received is dropped, so the first reply on the new link
+        cannot be mistaken for, or glued to, a stale frame. Teardown
+        failures are ignored; connecting again raises `TTLockError`.
+        """
+        if self._client is not None:
+            self._replaced_clients.add(self._client)
+        try:
+            await self.disconnect()
+        except Exception:  # the old link is being discarded whatever it raises
+            log.debug("Teardown before reconnect failed; ignoring", exc_info=True)
+            self._client = None
+        self._reassembler = FrameReassembler()
+        while not self._inbox.empty():
+            self._inbox.get_nowait()
+        await self.connect()
 
     async def disconnect(self) -> None:
         """Stop notifications and release the BLE client, even after the lock dropped the link."""
@@ -175,7 +201,10 @@ class BleTransport:
             await self.send(frame)
             loop = asyncio.get_running_loop()
             deadline = loop.time() + timeout
-            msg = f"Timed out waiting {timeout:.1f}s for the lock to reply"
+            msg = (
+                f"Failed to get a reply to command 0x{frame.command:02x}: "
+                f"timed out after {timeout:.1f}s"
+            )
             while True:
                 remaining = deadline - loop.time()
                 if remaining <= 0:
@@ -258,6 +287,13 @@ class BleTransport:
             "Failed to discover TTLock GATT service: lock exposed neither "
             f"{TTL_SERVICE} nor {BONG_SERVICE}"
         )
+
+    def _on_disconnected(self, client: BleakClient) -> None:
+        if client in self._replaced_clients:
+            log.debug("Replaced link to %s closed", self.address)
+            return
+        if self.disconnected_callback is not None:
+            self.disconnected_callback(client)
 
     def _on_notify(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         log.debug("RX %s", bytes(data).hex())

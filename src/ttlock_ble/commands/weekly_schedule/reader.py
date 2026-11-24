@@ -28,8 +28,8 @@ async def read_weekly_schedule(
     reply arrived. The walk stops when a returned position is not greater
     than the last cursor (the lock wrapped to its first record) or after 7
     records. `None` on the first query means the credential has no schedule
-    and gives an empty list (a fingerprint without a schedule never
-    replies; for a card this is not tested); `None` later raises
+    and gives an empty list (neither a card nor a fingerprint without a
+    schedule ever replies); `None` later raises
     `TTLockError`.
 
     Every reply must carry the same credential as the first one; if

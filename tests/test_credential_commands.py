@@ -179,7 +179,7 @@ class TestTransportUntil:
             transport._inbox.put_nowait(_frames(client, _WAITING_FOR_CARD)[0])
 
         transport._client.write_gatt_char = _write
-        with pytest.raises(TTLockError, match="Timed out"):
+        with pytest.raises(TTLockError, match="timed out after"):
             await transport.exchange(
                 Frame.for_lock(client.key.lockVersion, cmd.CMD_MANAGE_IC_CARD, _ADD_CARD),
                 timeout=0.02,

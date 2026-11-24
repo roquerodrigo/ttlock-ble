@@ -18,7 +18,7 @@ from . import commands as cmd
 from ._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from .client import TTLockClient
 from .cloud import TTLockCloud
-from .constants import KeyboardPwdType, LockVolume, Weekday
+from .constants import CredentialType, KeyboardPwdType, LockVolume, Weekday
 from .exceptions import CloudError
 from .models import (
     CLOUD_APPS,
@@ -144,7 +144,7 @@ def _schedule_credential(card: str | None, fingerprint: str | None) -> Credentia
         raise typer.BadParameter("give exactly one of --card or --fingerprint")
     try:
         if card is not None:
-            return Credential.card(int(card, 16))
+            return Credential(CredentialType.CARD, bytes.fromhex(card))
         return Credential.fingerprint(bytes.fromhex(fingerprint or ""))
     except ValueError as error:
         raise typer.BadParameter(f"credential id: {error}") from None
@@ -721,6 +721,7 @@ def set_schedule(
         logging.basicConfig(level=logging.DEBUG)
     credential = _schedule_credential(card, fingerprint)
     windows = tuple(item for value in window for item in _parse_window(value))
+    _validate(lambda: Weekly(windows))
     key = _resolve_key(target)
     if not yes:
         typer.confirm(

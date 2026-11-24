@@ -656,10 +656,10 @@ class TestBleCommands:
             return_value=(WeeklyWindow(Weekday.MONDAY, dt.time(8), dt.time(12)),)
         )
         self._patch_client(cli_module, monkeypatch, client)
-        result = runner.invoke(cli_module.app, ["get-schedule", "2", "--card", "6195714b", "-v"])
+        result = runner.invoke(cli_module.app, ["get-schedule", "2", "--card", "0a1b2c3d", "-v"])
         assert result.exit_code == 0, result.output
         assert "Monday    08:00-12:00" in result.output
-        client.weekly_schedules.get.assert_awaited_once_with(Credential.card(0x6195714B))
+        client.weekly_schedules.get.assert_awaited_once_with(Credential.card(0x0A1B2C3D))
 
     def test_get_schedule_without_windows(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
@@ -680,7 +680,8 @@ class TestBleCommands:
         ("options", "message"),
         [
             ([], "exactly one of --card or --fingerprint"),
-            (["--card", "1", "--fingerprint", "0001e2400003"], "exactly one"),
+            (["--card", "00000001", "--fingerprint", "0001e2400003"], "exactly one"),
+            (["--card", "000001"], "card id must be 4 or 8 bytes"),
             (["--card", "zz"], "credential id"),
             (["--fingerprint", "0001"], "6 bytes"),
         ],
@@ -689,6 +690,38 @@ class TestBleCommands:
         cli_module, store = cli_app
         _write_keys(store)
         assert message in _usage_error(cli_module.app, ["get-schedule", "2", *options])
+
+    def test_card_with_an_eight_byte_id_keeps_its_width(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.weekly_schedules.get = AsyncMock(return_value=())
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-schedule", "2", "--card", "000000000a1b2c3d"])
+        assert result.exit_code == 0, result.output
+        (credential,), _ = client.weekly_schedules.get.await_args
+        assert credential.identifier == bytes.fromhex("000000000a1b2c3d")
+
+    def test_set_schedule_rejects_a_repeated_weekday_before_connecting(
+        self, cli_app, monkeypatch
+    ) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        arguments = [
+            "set-schedule",
+            "2",
+            "--card",
+            "00000001",
+            "--window",
+            "workdays=08:00-18:00",
+            "--window",
+            "mon=09:00-10:00",
+            "--yes",
+        ]
+        assert "one window per weekday" in _usage_error(cli_module.app, arguments)
+        client.__aenter__.assert_not_called()
 
     def test_set_schedule(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
@@ -702,7 +735,7 @@ class TestBleCommands:
                 "set-schedule",
                 "2",
                 "--card",
-                "6195714b",
+                "0a1b2c3d",
                 "--window",
                 "weekend=09:00-12:00",
                 "--window",
@@ -712,10 +745,10 @@ class TestBleCommands:
             input="y\n",
         )
         assert result.exit_code == 0, result.output
-        assert "card 6195714b" in result.output
+        assert "card 0a1b2c3d" in result.output
         assert "3 weekly window(s) set" in result.output
         client.weekly_schedules.set.assert_awaited_once_with(
-            Credential.card(0x6195714B),
+            Credential.card(0x0A1B2C3D),
             (
                 WeeklyWindow(Weekday.SATURDAY, dt.time(9), dt.time(12)),
                 WeeklyWindow(Weekday.SUNDAY, dt.time(9), dt.time(12)),
@@ -734,7 +767,7 @@ class TestBleCommands:
     def test_set_schedule_rejects_bad_windows(self, cli_app, window, message) -> None:
         cli_module, store = cli_app
         _write_keys(store)
-        arguments = ["set-schedule", "2", "--card", "1", "--window", window, "--yes"]
+        arguments = ["set-schedule", "2", "--card", "00000001", "--window", window, "--yes"]
         assert message in _usage_error(cli_module.app, arguments)
 
     def test_set_schedule_aborts_without_confirmation(self, cli_app, monkeypatch) -> None:
@@ -745,7 +778,7 @@ class TestBleCommands:
         self._patch_client(cli_module, monkeypatch, client)
         result = runner.invoke(
             cli_module.app,
-            ["set-schedule", "2", "--card", "1", "--window", "mon=08:00-09:00"],
+            ["set-schedule", "2", "--card", "00000001", "--window", "mon=08:00-09:00"],
             input="n\n",
         )
         assert result.exit_code != 0
@@ -773,7 +806,7 @@ class TestBleCommands:
         client = MagicMock()
         client.weekly_schedules.clear = AsyncMock()
         self._patch_client(cli_module, monkeypatch, client)
-        result = runner.invoke(cli_module.app, ["clear-schedule", "2", "--card", "1", "-y"])
+        result = runner.invoke(cli_module.app, ["clear-schedule", "2", "--card", "00000001", "-y"])
         assert result.exit_code == 0, result.output
         client.weekly_schedules.clear.assert_awaited_once_with(Credential.card(1))
 

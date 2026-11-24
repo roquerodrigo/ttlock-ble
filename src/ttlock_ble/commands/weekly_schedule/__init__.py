@@ -2,9 +2,9 @@
 
 Pure encode/decode functions, payload builders for QUERY, CLEAR and ADD,
 reply parsers, a sans-IO schedule read and a pure write plan. Self-contained
-on purpose: it imports neither the client nor the transport, so it can be
-wired into credential managers later. Confirmed on a lock of model
-SN484_PV53 (firmware 6.5.15.240522); other models are not tested.
+on purpose: it imports neither the client nor the transport;
+`credentials.WeeklyScheduleManager` drives it. Confirmed on SN484_PV53
+(firmware 6.5.15.240522) and SN534-4P-T78-BELL_PV53 (firmware 6.5.20).
 
 Conclusions only here; the evidence is in roquerodrigo/ttlock-ble#119.
 Non-weekly record kinds, the month byte, REMOVE (operation 3), operation 5 and
