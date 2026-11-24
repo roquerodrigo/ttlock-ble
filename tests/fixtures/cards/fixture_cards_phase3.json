@@ -195,6 +195,152 @@
      "plaintext": "70014002"
     }
    ]
+  },
+  {
+   "operation": "enroll by tap, recurring (all seven days)",
+   "captured": "2026-11-25",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 2 (add), op 1",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "waiting for a card",
+     "plaintext": "0501410202"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "card presented after 2.5 s",
+     "plaintext": "050141020111223344"
+    },
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 5 validity 2026-11-24 00:00 .. 2027-11-24 23:59",
+     "plaintext": "05112233441a0b1800001b0b18173b"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "05014105"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CMD 0x70 ADD Sun 22:17-23:17 (no CLEAR before the ADDs)",
+     "plaintext": "020204112233440107001611171100000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "70014102"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CMD 0x70 ADD Mon 22:17-23:17 (no CLEAR before the ADDs)",
+     "plaintext": "020204112233440101001611171100000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "70014102"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CMD 0x70 ADD Tue 22:17-23:17 (no CLEAR before the ADDs)",
+     "plaintext": "020204112233440102001611171100000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "70014102"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CMD 0x70 ADD Wed 22:17-23:17 (no CLEAR before the ADDs)",
+     "plaintext": "020204112233440103001611171100000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "70014102"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CMD 0x70 ADD Thu 22:17-23:17 (no CLEAR before the ADDs)",
+     "plaintext": "020204112233440104001611171100000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "70014102"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CMD 0x70 ADD Fri 22:17-23:17 (no CLEAR before the ADDs)",
+     "plaintext": "020204112233440105001611171100000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "70014102"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CMD 0x70 ADD Sat 22:17-23:17 (no CLEAR before the ADDs)",
+     "plaintext": "020204112233440106001611171100000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "70014102"
+    }
+   ],
+   "note": "After a fresh enrollment the app sends the validity and one ADD per day, without a CLEAR."
+  },
+  {
+   "operation": "enroll by tap of a card the lock already holds (app, permanent)",
+   "captured": "2026-11-25",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 2 (add), op 1",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "waiting for a card",
+     "plaintext": "0501410202"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "the already-enrolled card tapped: reported exactly like a new enrollment",
+     "plaintext": "050141020111223344"
+    }
+   ],
+   "note": "The app sent nothing more and reported success. The lock reset the card: its dates became permanent and its seven weekly windows were gone (checked with get-cards / get-schedule). The app does not detect or prevent this."
   }
  ],
  "sdk_only": {

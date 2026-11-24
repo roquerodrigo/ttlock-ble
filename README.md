@@ -182,10 +182,10 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock get-auto-lock-limits <lock>` | Admin eKey | Show the min/max auto-lock delay this lock accepts |
 | `ttlock get-fingerprints <lock>` | Admin eKey | List enrolled fingerprints — blind to cyclic (day-of-week / time-range) restrictions |
 | `ttlock get-cards <lock>` | Admin eKey | List enrolled IC cards/tags with their number — blind to cyclic (day-of-week / time-range) restrictions, see `get-schedule` |
-| `ttlock enroll-card <lock>` | Admin eKey | Enroll a card by tapping it on the lock (asks you to present it): permanent by default, `--start`/`--end` for a dated one, `--days`/`--from`/`--to` (optionally with dates) for a weekly one; `--timeout` sets how long to wait |
-| `ttlock add-card <lock> <number>` | Admin eKey | Add a card by its decimal number, same validity options; adding one the lock holds is answered with success |
-| `ttlock modify-card <lock> <number>` | Admin eKey | Replace a card's dates and weekly windows: `--permanent`, or the validity options |
-| `ttlock delete-card <lock> <number>` | Admin eKey | Remove one card; asks first, `--yes`/`-y` skips the question |
+| `ttlock enroll-card <lock>` | Admin eKey | Enroll a card by tapping it on the lock (asks you to present it): permanent by default, `--start`/`--end` for a dated one, `--days`/`--from`/`--to` (optionally with dates) for a weekly one; `--timeout` sets how long to wait. A card the lock already holds is restored to its previous dates and windows, with an error |
+| `ttlock add-card <lock> <id>` | Admin eKey | Add a card by its hex id as `get-cards` prints it, same validity options; refuses a card the lock already holds |
+| `ttlock modify-card <lock> <id>` | Admin eKey | Replace a card's dates and weekly windows: `--permanent`, or the validity options |
+| `ttlock delete-card <lock> <id>` | Admin eKey | Remove one card; asks first, `--yes`/`-y` skips the question |
 | `ttlock clear-cards <lock>` | Admin eKey | Remove EVERY card from the lock — no undo; asks first, `--yes`/`-y` skips the question |
 
 Every BLE command takes `-v` for debug logging. `<lock>` is a `lockId`, alias or MAC from
@@ -221,8 +221,8 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Admin eKey | Earlier string-based passcode calls, kept for compatibility |
 | `get_fingerprints()` | Admin eKey | Enrolled fingerprints (`list[FingerprintEntry]`); their weekly windows come from `weekly_schedules.get` |
 | `cards.list(include_weekly_windows=True)` | Admin eKey | Enrolled IC cards with their weekly windows (`list[CardEntry]`); a card without windows costs a short timeout and a reconnect, so pass `False` for a fast listing |
-| `cards.enroll(validity, on_progress, timeout=…)` | Admin eKey, `IC` | Enroll the card tapped on the lock; `Permanent()` (default), `Period` or `Weekly`; raises `EnrollmentTimeoutError` if none comes, and deletes the card again if its validity cannot be applied |
-| `cards.add(card, validity)` | Admin eKey, `IC` | Add a card by its `Credential.card(number)`, without tapping; a card the lock already holds is answered with success |
+| `cards.enroll(validity, on_progress, timeout=…)` | Admin eKey, `IC` | Enroll the card tapped on the lock; `Permanent()` (default), `Period` or `Weekly`; raises `EnrollmentTimeoutError` if none comes, deletes the card again if its validity cannot be applied, and restores a card the lock already held (the lock resets it) before raising `CardAlreadyEnrolledError` |
+| `cards.add(card, validity)` | Admin eKey, `IC` | Add a card by its `Credential.card(number)`, without tapping; raises `CardAlreadyEnrolledError` for a card the lock holds, since the lock would replace its dates |
 | `cards.modify(card, validity)` | Admin eKey, `IC` | Change a card's dates and weekly windows |
 | `cards.delete(card)` / `cards.clear()` | Admin eKey, `IC` | Remove one card / every card |
 | `get_cards()` | Admin eKey | Enrolled IC cards/tags (`list[CardEntry]`) without their weekly windows, as `cards.list(include_weekly_windows=False)` |

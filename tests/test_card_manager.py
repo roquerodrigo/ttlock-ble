@@ -16,10 +16,12 @@ from tests.conftest import make_virtual_key
 from tests.test_card_commands import FIRST_CARD, OPERATIONS, SECOND_CARD
 from tests.test_client_ble import FakeBleakClient, _check_admin_plain, _resp_frame, _status_plain
 from ttlock_ble import (
+    CardAlreadyEnrolledError,
     CardEnrollmentStep,
     CardEntry,
     CardPresentedLateError,
     Credential,
+    CredentialAlreadyExistsError,
     CredentialNotFoundError,
     EnrollmentTimeoutError,
     LockFeature,
@@ -88,6 +90,11 @@ def _replies(client: TTLockClient, *plains: bytes) -> list[Frame]:
     return [_resp_frame(client.key, 0x54, plain) for plain in plains]
 
 
+def _listing(client: TTLockClient, *entries: bytes) -> list[Frame]:
+    """The admin handshake and the card list (entry replies) that `enroll` and `add` read first."""
+    return [*_admin(client), *_replies(client, *entries, _end_plain())]
+
+
 def _enrollment(client: TTLockClient, operation: str = "enroll by tap, permanent") -> list:
     """The waiting reply and the pushed card, which the lock sends after one command."""
     return [_replies(client, _plain(operation, 0), _plain(operation, 1))]
@@ -104,6 +111,11 @@ def _sent(client: TTLockClient, fake: FakeBleakClient) -> list[tuple[int, bytes]
 
 
 def _card_commands(client: TTLockClient, fake: FakeBleakClient) -> list[bytes]:
+    """Every CMD 0x05 payload sent except the list queries (sub-op 1)."""
+    return [data for data in _card_traffic(client, fake) if data[0] != 1]
+
+
+def _card_traffic(client: TTLockClient, fake: FakeBleakClient) -> list[bytes]:
     return [data for command, data in _sent(client, fake) if command == cmd.CMD_MANAGE_IC_CARD]
 
 
@@ -115,6 +127,7 @@ class TestEnroll:
     async def test_permanent_sends_nothing_after_the_tap(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             *_enrollment(client),
@@ -130,6 +143,7 @@ class TestEnroll:
     async def test_permanent_validity_object_is_the_same_as_none(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             *_enrollment(client),
@@ -142,6 +156,7 @@ class TestEnroll:
     ) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             *_enrollment(client),
@@ -162,6 +177,7 @@ class TestEnroll:
         client, fake = await _connected(patched_connect)
         operation = "enroll by tap, timed"
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             *_enrollment(client, operation),
@@ -179,6 +195,7 @@ class TestEnroll:
         operation = "enroll by tap, timed"
         weekly = Weekly((_TUESDAY, _FRIDAY), _PERIOD.start, _PERIOD.end)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(*_ALL_FEATURES)),
             *_enrollment(client, operation),
@@ -199,6 +216,7 @@ class TestEnroll:
         client, fake = await _connected(patched_connect)
         operation = "enroll by tap, timed"
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(*_ALL_FEATURES)),
             *_enrollment(client, operation),
@@ -212,6 +230,7 @@ class TestEnroll:
     async def test_no_card_presented_raises_a_typed_timeout(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             _replies(client, _plain("enroll by tap, no card presented", 0)),
@@ -230,6 +249,7 @@ class TestEnroll:
     ) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             _replies(client, _plain("enroll by tap, no card presented", 0)),
@@ -249,6 +269,7 @@ class TestEnroll:
     async def test_a_card_after_the_timeout_is_deleted_and_reported(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             _replies(client, _plain("enroll by tap, permanent", 0)),
@@ -272,6 +293,7 @@ class TestEnroll:
     ) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             _replies(client, _plain("enroll by tap, permanent", 0)),
@@ -287,6 +309,7 @@ class TestEnroll:
     async def test_a_card_inside_the_timeout_is_not_late(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             _replies(client, _plain("enroll by tap, permanent", 0)),
@@ -307,6 +330,7 @@ class TestEnroll:
     ) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             _replies(client, _plain("enroll by tap, no card presented", 0)),
@@ -326,6 +350,7 @@ class TestEnroll:
     async def test_an_unexpected_reply_is_an_error(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             _replies(client, bytes.fromhex("0501440209")),
@@ -336,6 +361,7 @@ class TestEnroll:
     async def test_a_full_lock_raises_storage_full(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC), _refusal(cmd.CMD_MANAGE_IC_CARD, 0x16)),
         ]
@@ -345,6 +371,7 @@ class TestEnroll:
     async def test_a_refused_validity_deletes_the_card_again(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             *_enrollment(client, "enroll by tap, timed"),
@@ -363,6 +390,7 @@ class TestEnroll:
         client, fake = await _connected(patched_connect)
         operation = "enroll by tap, timed"
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(*_ALL_FEATURES)),
             *_enrollment(client, operation),
@@ -382,6 +410,7 @@ class TestEnroll:
     ) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             *_enrollment(client, "enroll by tap, timed"),
@@ -402,7 +431,11 @@ class TestEnroll:
         self, patched_connect
     ) -> None:
         client, fake = await _connected(patched_connect)
-        fake.reply_for_next = [*_admin(client), *_replies(client, _features(LockFeature.IC))]
+        fake.reply_for_next = [
+            *_listing(client),
+            *_admin(client),
+            *_replies(client, _features(LockFeature.IC)),
+        ]
         with pytest.raises(UnsupportedFeatureError, match="CYCLIC_IC_OR_FINGER_PRINT"):
             await client.cards.enroll(Weekly((_TUESDAY,)))
         assert _card_commands(client, fake) == []
@@ -426,6 +459,7 @@ class TestAdd:
     async def test_sends_the_card_and_its_dates(self, patched_connect, validity, payload) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC), bytes.fromhex("05014402")),
         ]
@@ -435,6 +469,7 @@ class TestAdd:
     async def test_a_number_above_32_bits_uses_eight_bytes(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC), bytes.fromhex("05014402")),
         ]
@@ -444,6 +479,7 @@ class TestAdd:
     async def test_weekly_writes_its_windows_after_the_dates(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(*_ALL_FEATURES), bytes.fromhex("05014402")),
             *_admin(client),
@@ -456,6 +492,7 @@ class TestAdd:
     async def test_weekly_failure_deletes_the_card_again(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(*_ALL_FEATURES), bytes.fromhex("05014402")),
             *_admin(client),
@@ -470,17 +507,250 @@ class TestAdd:
     async def test_a_full_lock_raises_storage_full(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC), _refusal(cmd.CMD_MANAGE_IC_CARD, 0x16)),
         ]
         with pytest.raises(StorageFullError, match="add_card"):
             await client.cards.add(_CARD)
 
+    async def test_a_card_the_lock_holds_is_refused_with_nothing_sent(
+        self, patched_connect
+    ) -> None:
+        client, fake = await _connected(patched_connect)
+        fake.reply_for_next = [*_listing(client, _entry_plain(FIRST_CARD, 1))]
+        with pytest.raises(CardAlreadyEnrolledError, match="use modify") as raised:
+            await client.cards.add(_CARD, _PERIOD)
+        assert isinstance(raised.value, CredentialAlreadyExistsError)
+        assert raised.value.restored is None
+        assert FIRST_CARD.hex() not in str(raised.value)
+        assert _card_commands(client, fake) == []
+        assert all(command != cmd.CMD_SEARCH_DEVICE_FEATURE for command, _ in _sent(client, fake))
+
+    async def test_another_held_card_does_not_block_an_add(self, patched_connect) -> None:
+        client, fake = await _connected(patched_connect)
+        fake.reply_for_next = [
+            *_listing(client, _entry_plain(SECOND_CARD, 1)),
+            *_admin(client),
+            *_replies(client, _features(LockFeature.IC), bytes.fromhex("05014402")),
+        ]
+        await client.cards.add(_CARD)
+        assert _card_commands(client, fake)[0][:5] == bytes([2]) + FIRST_CARD
+
     async def test_bad_input_is_refused_before_connecting(self) -> None:
         client = TTLockClient(make_virtual_key())
         single = SingleUse(dt.datetime(2026, 1, 1), dt.datetime(2026, 1, 2))  # noqa: DTZ001
         with pytest.raises(ValueError, match="single-use"):
             await client.cards.add(_CARD, single)
+
+
+_HELD = "enroll by tap of a card the lock already holds (app, permanent)"
+_END_2027 = bytes([27, 11, 24, 23, 59])
+_MODIFY_DONE = bytes.fromhex("05014105")
+
+
+async def _held_card_run(  # noqa: PLR0913 -- one knob per scenario the tests vary
+    patched_connect,
+    *,
+    entry: bytes | None = None,
+    windows: tuple[WeeklyWindow, ...] = (),
+    after_tap=lambda _client: [],
+    validity=None,
+    late_by: float | None = None,
+):
+    """Enroll while the lock already holds card 0x11223344; return the client, fake and error."""
+    client, fake = await _connected(patched_connect)
+    client.weekly_schedules.get = AsyncMock(return_value=windows)
+    held = entry if entry is not None else _entry_plain(SECOND_CARD, 1)
+    push = _resp_frame(client.key, 0x54, _plain(_HELD, 1))
+    waiting = _replies(client, _plain(_HELD, 0))
+    fake.reply_for_next = [
+        *_listing(client, held),
+        *_admin(client),
+        *_replies(client, _features(*_ALL_FEATURES)),
+        waiting if late_by is not None else [*waiting, push],
+        *after_tap(client),
+    ]
+    if late_by is not None:
+        asyncio.get_running_loop().call_later(
+            late_by, fake._notify_cb, "notify-char", bytearray(push.build())
+        )
+    try:
+        await client.cards.enroll(validity, timeout=0.05 if late_by is not None else 5.0)
+    except TTLockError as error:
+        return client, fake, error
+    return client, fake, None
+
+
+def _restore_replies(client: TTLockClient) -> list[Frame]:
+    return [
+        *_admin(client),
+        *_replies(client, _MODIFY_DONE),
+        *_admin(client),
+        *_replies(client, _CLEAR_DONE),
+    ]
+
+
+class TestEnrollHeldCard:
+    async def test_a_permanent_card_is_restored_not_deleted(self, patched_connect) -> None:
+        client, fake, error = await _held_card_run(patched_connect, after_tap=_restore_replies)
+        assert isinstance(error, CardAlreadyEnrolledError)
+        assert isinstance(error, CredentialAlreadyExistsError)
+        assert error.restored is True
+        assert "were restored" in str(error)
+        assert _card_commands(client, fake) == [
+            bytes.fromhex("0201"),
+            cmd.payload_card_modify(SECOND_CARD, Permanent()),
+        ]
+        assert fake.reply_for_next == []
+
+    async def test_dates_and_windows_are_written_back(self, patched_connect) -> None:
+        entry = _entry_plain(SECOND_CARD, 1, end=_END_2027)
+        client, fake, error = await _held_card_run(
+            patched_connect,
+            entry=entry,
+            windows=(_TUESDAY,),
+            after_tap=lambda c: [
+                *_admin(c),
+                *_replies(c, _MODIFY_DONE),
+                *_admin(c),
+                *_replies(c, _CLEAR_DONE, _ADD_DONE),
+            ],
+        )
+        assert isinstance(error, CardAlreadyEnrolledError)
+        assert error.restored is True
+        end = dt.datetime(2027, 11, 24, 23, 59)  # noqa: DTZ001 -- lock-local wall clock
+        restored = Weekly((_TUESDAY,), dt.datetime(2000, 1, 1), end)  # noqa: DTZ001
+        assert _card_commands(client, fake)[1] == cmd.payload_card_modify(SECOND_CARD, restored)
+        assert _schedule_commands(client, fake) == [
+            bytes.fromhex("04020411223344"),
+            bytes.fromhex("02020411223344010200140e150e00000000"),
+        ]
+        assert fake.reply_for_next == []
+
+    async def test_a_dated_card_without_windows_gets_a_period_back(self, patched_connect) -> None:
+        start = bytes([26, 12, 1, 8, 0])
+        entry = _entry_plain(SECOND_CARD, 1, start=start, end=bytes([26, 12, 10, 18, 0]))
+        client, fake, error = await _held_card_run(
+            patched_connect, entry=entry, after_tap=_restore_replies
+        )
+        assert isinstance(error, CardAlreadyEnrolledError)
+        period = Period(dt.datetime(2026, 12, 1, 8), dt.datetime(2026, 12, 10, 18))  # noqa: DTZ001
+        assert _card_commands(client, fake)[1] == cmd.payload_card_modify(SECOND_CARD, period)
+
+    async def test_the_new_validity_is_not_applied_to_a_card_that_was_held(
+        self, patched_connect
+    ) -> None:
+        client, fake, error = await _held_card_run(
+            patched_connect, validity=_PERIOD, after_tap=_restore_replies
+        )
+        assert isinstance(error, CardAlreadyEnrolledError)
+        assert _card_commands(client, fake)[1] == cmd.payload_card_modify(SECOND_CARD, Permanent())
+        assert all(data[0] != 3 for data in _card_commands(client, fake))
+
+    async def test_a_failed_restore_says_the_card_may_be_unrestricted(
+        self, patched_connect
+    ) -> None:
+        client, fake, error = await _held_card_run(
+            patched_connect,
+            after_tap=lambda c: [
+                *_admin(c),
+                *_replies(c, _refusal(cmd.CMD_MANAGE_IC_CARD, 0x20)),
+            ],
+        )
+        assert isinstance(error, CardAlreadyEnrolledError)
+        assert error.restored is False
+        assert "may now be permanent and unrestricted" in str(error)
+        assert "0x20" in str(error)
+        assert all(data[0] != 3 for data in _card_commands(client, fake))
+
+    async def test_a_card_that_was_held_and_tapped_late_is_restored_not_removed(
+        self, patched_connect
+    ) -> None:
+        client, fake, error = await _held_card_run(
+            patched_connect, after_tap=_restore_replies, late_by=0.15
+        )
+        assert isinstance(error, CardAlreadyEnrolledError)
+        assert not isinstance(error, CardPresentedLateError)
+        assert error.restored is True
+        assert "after the timeout" in str(error)
+        assert all(data[0] != 3 for data in _card_commands(client, fake))
+        assert fake.reply_for_next == []
+
+    async def test_a_card_not_in_the_list_is_still_deleted_by_a_rollback(
+        self, patched_connect
+    ) -> None:
+        client, fake = await _connected(patched_connect)
+        client.weekly_schedules.get = AsyncMock(return_value=())
+        fake.reply_for_next = [
+            *_listing(client, _entry_plain(SECOND_CARD, 1)),
+            *_admin(client),
+            *_replies(client, _features(LockFeature.IC)),
+            *_enrollment(client, "enroll by tap, timed"),
+            *_replies(client, _refusal(cmd.CMD_MANAGE_IC_CARD, 0x20)),
+            *_admin(client),
+            *_replies(client, _plain("delete one card", 0)),
+        ]
+        with pytest.raises(TTLockError, match="deleted again"):
+            await client.cards.enroll(_PERIOD)
+        assert _card_commands(client, fake)[-1] == bytes.fromhex("0355667788")
+
+    async def test_a_listing_failure_stops_before_add_mode(self, patched_connect) -> None:
+        client, fake = await _connected(patched_connect)
+        client.weekly_schedules.get = AsyncMock(side_effect=TTLockError("no reply"))
+        fake.reply_for_next = [*_listing(client, _entry_plain(SECOND_CARD, 1))]
+        with pytest.raises(TTLockError, match="no reply"):
+            await client.cards.enroll()
+        assert _card_commands(client, fake) == []
+
+    async def test_the_restore_error_keeps_the_card_private(self, patched_connect, caplog) -> None:
+        with caplog.at_level(logging.DEBUG):
+            _client, _fake, error = await _held_card_run(
+                patched_connect, after_tap=_restore_replies
+            )
+        assert error is not None
+        for secret in (SECOND_CARD.hex(), str(_OTHER_NUMBER), hex(_OTHER_NUMBER)):
+            assert secret not in caplog.text + str(error)
+
+    def test_the_error_survives_pickling(self) -> None:
+        import pickle
+
+        error = CardAlreadyEnrolledError("enroll_card", "held", restored=False)
+        copy = pickle.loads(pickle.dumps(error))  # noqa: S301
+        assert (str(copy), copy.restored, copy.action) == ("held", False, "enroll_card")
+
+
+class TestEnrollRecurringFlow:
+    async def test_a_recurring_enrollment_sends_the_captured_validity_and_days(
+        self, patched_connect
+    ) -> None:
+        operation = "enroll by tap, recurring (all seven days)"
+        captured = [bytes.fromhex(f["plaintext"]) for f in OPERATIONS[operation]]
+        client, fake = await _connected(patched_connect)
+        window = (dt.time(22, 17), dt.time(23, 17))
+        weekly = Weekly(
+            tuple(WeeklyWindow(day, *window) for day in Weekday),
+            dt.datetime(2026, 11, 24, 0, 0),  # noqa: DTZ001 -- lock-local wall clock
+            dt.datetime(2027, 11, 24, 23, 59),  # noqa: DTZ001 -- lock-local wall clock
+        )
+        fake.reply_for_next = [
+            *_listing(client),
+            *_admin(client),
+            *_replies(client, _features(*_ALL_FEATURES)),
+            *_enrollment(client, operation),
+            *_replies(client, _plain(operation, 2)),
+            *_admin(client),
+            *_replies(client, _CLEAR_DONE, *([_ADD_DONE] * 7)),
+        ]
+        credential = await client.cards.enroll(weekly)
+        assert credential.identifier == SECOND_CARD
+        sent_validity = _card_commands(client, fake)[1]
+        assert sent_validity == captured[3]
+        captured_adds = {data for data in captured if data[:2] == bytes.fromhex("0202")}
+        sent = _schedule_commands(client, fake)
+        assert sent[0] == bytes.fromhex("04020411223344")
+        assert set(sent[1:]) == captured_adds
+        assert len(captured_adds) == 7
 
 
 class TestModify:
@@ -597,19 +867,25 @@ class TestDeleteAndClear:
         assert _card_commands(client, fake) == [bytes.fromhex("04")]
 
     @pytest.mark.parametrize(
-        "call",
+        ("call", "reads_cards_first"),
         [
-            lambda cards: cards.enroll(),
-            lambda cards: cards.add(_CARD),
-            lambda cards: cards.modify(_CARD, Permanent()),
-            lambda cards: cards.delete(_CARD),
-            lambda cards: cards.clear(),
+            (lambda cards: cards.enroll(), True),
+            (lambda cards: cards.add(_CARD), True),
+            (lambda cards: cards.modify(_CARD, Permanent()), False),
+            (lambda cards: cards.delete(_CARD), False),
+            (lambda cards: cards.clear(), False),
         ],
         ids=["enroll", "add", "modify", "delete", "clear"],
     )
-    async def test_every_write_needs_the_card_feature(self, patched_connect, call) -> None:
+    async def test_every_write_needs_the_card_feature(
+        self, patched_connect, call, reads_cards_first
+    ) -> None:
         client, fake = await _connected(patched_connect)
-        fake.reply_for_next = [*_admin(client), *_replies(client, _features(LockFeature.PASSCODE))]
+        fake.reply_for_next = [
+            *(_listing(client) if reads_cards_first else []),
+            *_admin(client),
+            *_replies(client, _features(LockFeature.PASSCODE)),
+        ]
         with pytest.raises(UnsupportedFeatureError, match="IC"):
             await call(client.cards)
         assert _card_commands(client, fake) == []
@@ -640,11 +916,14 @@ class TestDeleteAndClear:
         assert _card_commands(client, fake) == [bytes([3]) + eight]
 
 
-def _entry_plain(card_id: bytes, position: int) -> bytes:
+def _entry_plain(
+    card_id: bytes,
+    position: int,
+    start: bytes = cmd.START_DATE_SENTINEL,
+    end: bytes = cmd.END_DATE_SENTINEL,
+) -> bytes:
     data = bytes([0x55, 0x01]) + position.to_bytes(2, "big") + card_id
-    return bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS]) + (
-        data + cmd.START_DATE_SENTINEL + cmd.END_DATE_SENTINEL
-    )
+    return bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS]) + data + start + end
 
 
 def _end_plain() -> bytes:
@@ -737,6 +1016,7 @@ class TestPrivacy:
         client, fake = await _connected(patched_connect)
         operation = "enroll by tap, timed"
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(*_ALL_FEATURES)),
             *_enrollment(client, operation),
@@ -760,6 +1040,7 @@ class TestPrivacy:
     async def test_a_timeout_and_a_missing_card_stay_private(self, patched_connect, caplog) -> None:
         client, fake = await _connected(patched_connect)
         fake.reply_for_next = [
+            *_listing(client),
             *_admin(client),
             *_replies(client, _features(LockFeature.IC)),
             _replies(client, _plain("enroll by tap, no card presented", 0)),

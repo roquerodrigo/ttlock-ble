@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .card_already_enrolled import CardAlreadyEnrolledError
 from .card_presented_late import CardPresentedLateError
 from .cloud import CloudError
 from .credential_already_exists import CredentialAlreadyExistsError
@@ -15,6 +16,7 @@ from .ttlock import TTLockError
 from .unsupported_feature import UnsupportedFeatureError
 
 __all__ = [
+    "CardAlreadyEnrolledError",
     "CardPresentedLateError",
     "CloudError",
     "CredentialAlreadyExistsError",

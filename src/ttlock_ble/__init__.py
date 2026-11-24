@@ -34,6 +34,7 @@ Public API:
     ReplyTimeoutError — the lock did not answer a command in time
     EnrollmentTimeoutError — no card was presented while the lock waited for one
     CardPresentedLateError — a card was tapped after the timeout and was removed again
+    CardAlreadyEnrolledError — the card was already on the lock (enroll restored it, add refused)
     CloudError        — raised by `TTLockCloud` on a non-success HTTP response
 
 IntEnums:
@@ -60,6 +61,7 @@ from .constants import (
 )
 from .credentials import AdminPasscodeManager, CardManager, PasscodeManager, WeeklyScheduleManager
 from .exceptions import (
+    CardAlreadyEnrolledError,
     CardPresentedLateError,
     CloudError,
     CredentialAlreadyExistsError,
@@ -103,6 +105,7 @@ __all__ = [
     "AdminPasscodeManager",
     "AutoLockLimits",
     "AutoLockOperate",
+    "CardAlreadyEnrolledError",
     "CardEnrollmentStep",
     "CardEntry",
     "CardManager",

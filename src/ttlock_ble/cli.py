@@ -164,8 +164,8 @@ def _card_validity(
         raise typer.BadParameter(str(error)) from None
 
 
-def _card_credential(number: int) -> Credential:
-    return _validate(lambda: Credential.card(number))
+def _card_credential(card_id: str) -> Credential:
+    return _schedule_credential(card_id, None)
 
 
 def _validate[T](build: Callable[[], T]) -> T:
@@ -719,6 +719,7 @@ def get_fingerprints(
     typer.echo("note: weekly windows are not listed here - see get-schedule.")
 
 
+_CARD_HELP = "card id, in hex as get-cards prints it"
 _START_HELP = "valid from, lock-local ISO time"
 _END_HELP = "valid until, lock-local ISO time"
 _DAYS_HELP = "weekly: daily, workdays, weekend, or one day; with --from and --to"
@@ -758,14 +759,14 @@ def enroll_card(
     key = _resolve_key(target)
     credential = _run_card_command(_run_enroll_card(key, validity, timeout))
     typer.echo(
-        f"✓ card enrolled: number {credential.card_number} (id {credential.identifier.hex()})"
+        f"✓ card enrolled: id {credential.identifier.hex()} (number {credential.card_number})"
     )
 
 
 @app.command("add-card")
 def add_card(
     target: str = typer.Argument(..., help="lockId, alias, or MAC"),
-    number: int = typer.Argument(..., help="card number, in decimal"),
+    card_id: str = typer.Argument(..., help=_CARD_HELP),
     start: str | None = typer.Option(None, help=_START_HELP),
     end: str | None = typer.Option(None, help=_END_HELP),
     days: str | None = typer.Option(None, help=_DAYS_HELP),
@@ -773,23 +774,23 @@ def add_card(
     window_end: str | None = typer.Option(None, "--to", help="weekly window end, HH:MM"),
     verbose: bool = typer.Option(False, "-v"),
 ) -> None:
-    """Add a card by its number, without tapping it (admin eKey)."""
+    """Add a card by its id, without tapping it (admin eKey)."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     validity = _card_validity(
         start=start, end=end, days=days, window_start=window_start, window_end=window_end
     )
-    credential = _card_credential(number)
-    _validate(lambda: cmd.payload_card_add(credential.identifier, validity))
+    card = _card_credential(card_id)
+    _validate(lambda: cmd.payload_card_add(card.identifier, validity))
     key = _resolve_key(target)
-    _run_card_command(_run_add_card(key, number, validity))
-    typer.echo(f"✓ card {number} added")
+    _run_card_command(_run_add_card(key, card, validity))
+    typer.echo(f"✓ card {card_id} added")
 
 
 @app.command("modify-card")
 def modify_card(
     target: str = typer.Argument(..., help="lockId, alias, or MAC"),
-    number: int = typer.Argument(..., help="card number, in decimal"),
+    card_id: str = typer.Argument(..., help=_CARD_HELP),
     permanent: bool = typer.Option(False, "--permanent", help="remove its dates and windows"),
     start: str | None = typer.Option(None, help=_START_HELP),
     end: str | None = typer.Option(None, help=_END_HELP),
@@ -807,29 +808,29 @@ def modify_card(
     validity = _card_validity(
         start=start, end=end, days=days, window_start=window_start, window_end=window_end
     )
-    credential = _card_credential(number)
-    _validate(lambda: cmd.payload_card_modify(credential.identifier, validity))
+    card = _card_credential(card_id)
+    _validate(lambda: cmd.payload_card_modify(card.identifier, validity))
     key = _resolve_key(target)
-    _run_card_command(_run_modify_card(key, number, validity))
-    typer.echo(f"✓ card {number} updated")
+    _run_card_command(_run_modify_card(key, card, validity))
+    typer.echo(f"✓ card {card_id} updated")
 
 
 @app.command("delete-card")
 def delete_card(
     target: str = typer.Argument(..., help="lockId, alias, or MAC"),
-    number: int = typer.Argument(..., help="card number, in decimal"),
+    card_id: str = typer.Argument(..., help=_CARD_HELP),
     yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
     verbose: bool = typer.Option(False, "-v"),
 ) -> None:
     """Remove one card (admin eKey)."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
-    _card_credential(number)
+    card = _card_credential(card_id)
     key = _resolve_key(target)
     if not yes:
-        typer.confirm(f"Remove card {number} from {key.lockAlias or key.lockMac}?", abort=True)
-    _run_card_command(_run_delete_card(key, number))
-    typer.echo(f"✓ card {number} removed")
+        typer.confirm(f"Remove card {card_id} from {key.lockAlias or key.lockMac}?", abort=True)
+    _run_card_command(_run_delete_card(key, card))
+    typer.echo(f"✓ card {card_id} removed")
 
 
 @app.command("clear-cards")
@@ -871,7 +872,6 @@ def get_cards(
     typer.echo("note: weekly windows are not listed here - see get-schedule.")
 
 
-_CARD_HELP = "card id, in hex as get-cards prints it"
 _FINGERPRINT_HELP = "fingerprint id, in hex as get-fingerprints prints it"
 _WINDOW_OPTION = typer.Option(
     ..., help="DAYS=HH:MM-HH:MM, e.g. mon=08:00-12:00 or workdays=08:00-18:00; repeatable"
@@ -1008,19 +1008,19 @@ async def _run_enroll_card(key: VirtualKey, validity: Validity, wait_seconds: fl
         return await c.cards.enroll(validity, report, timeout=wait_seconds)
 
 
-async def _run_add_card(key: VirtualKey, number: int, validity: Validity) -> None:
+async def _run_add_card(key: VirtualKey, card: Credential, validity: Validity) -> None:
     async with TTLockClient(key) as c:
-        await c.cards.add(Credential.card(number), validity)
+        await c.cards.add(card, validity)
 
 
-async def _run_modify_card(key: VirtualKey, number: int, validity: Validity) -> None:
+async def _run_modify_card(key: VirtualKey, card: Credential, validity: Validity) -> None:
     async with TTLockClient(key) as c:
-        await c.cards.modify(Credential.card(number), validity)
+        await c.cards.modify(card, validity)
 
 
-async def _run_delete_card(key: VirtualKey, number: int) -> None:
+async def _run_delete_card(key: VirtualKey, card: Credential) -> None:
     async with TTLockClient(key) as c:
-        await c.cards.delete(Credential.card(number))
+        await c.cards.delete(card)
 
 
 async def _run_clear_cards(key: VirtualKey) -> None:
