@@ -110,7 +110,7 @@ class FakeBleakClient:
         self.services = FakeServices({svc_uuid: FakeGATTService(svc_uuid, chars)})
         self._notify_cb: Callable[[object, bytearray], None] | None = None
         self.written: list[bytes] = []
-        self.reply_for_next: list[Frame] = []
+        self.reply_for_next: list[Frame | list[Frame]] = []
         self.read_uuids: list[str] = []
         self.disconnected = False
         self.stopped_notify = False
@@ -134,24 +134,12 @@ class FakeBleakClient:
         # Once the full frame is written, deliver the queued reply via notify.
         if self.reply_for_next and self._notify_cb is not None:
             reply = self.reply_for_next.pop(0)
-            self._notify_cb("notify-char", bytearray(reply.build()))
+            for frame in reply if isinstance(reply, list) else [reply]:
+                self._notify_cb("notify-char", bytearray(frame.build()))
 
     async def disconnect(self) -> None:
         self.disconnected = True
         self.is_connected = False
-
-
-@pytest.fixture
-def patched_connect(monkeypatch):
-    """Patch establish_connection to hand back a FakeBleakClient."""
-
-    def _install(fake: FakeBleakClient) -> None:
-        async def _establish(*_args, **_kwargs) -> FakeBleakClient:
-            return fake
-
-        monkeypatch.setattr(transport_mod, "establish_connection", _establish)
-
-    return _install
 
 
 class TestConnect:

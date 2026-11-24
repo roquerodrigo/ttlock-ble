@@ -24,6 +24,18 @@ def decimal_time_bytes(time_str: str) -> bytes:
     return bytes(int(time_str[i : i + 2]) for i in range(0, len(time_str), 2))
 
 
+def encode_date5(moment: dt.datetime) -> bytes:
+    """Pack `moment` into the 5 decimal-encoded bytes `(yy,mm,dd,hh,mm)` `decode_date5` reads.
+
+    Only the displayed wall-clock fields are written - the lock has no
+    timezone - and seconds are dropped. Raises `ValueError` outside the
+    2000-2099 range a one-byte year can hold.
+    """
+    if not 2000 <= moment.year <= 2099:
+        raise ValueError(f"lock dates span 2000-2099, got year {moment.year}")
+    return bytes([moment.year - 2000, moment.month, moment.day, moment.hour, moment.minute])
+
+
 def decode_date5(raw: bytes) -> dt.datetime | None:
     """Decode 5 decimal-encoded bytes `(yy,mm,dd,hh,mm)` into a naive `datetime`.
 

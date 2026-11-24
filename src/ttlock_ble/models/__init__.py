@@ -18,6 +18,7 @@ from .lock_version import LockVersion
 from .log_entry import LogEntry
 from .passcode_entry import PasscodeEntry
 from .site_info import SiteInfo
+from .validity import Period, Permanent, SingleUse, Validity, Weekly, WeeklyWindow
 from .virtual_key import VirtualKey
 
 __all__ = [
@@ -37,6 +38,12 @@ __all__ = [
     "LockVersion",
     "LogEntry",
     "PasscodeEntry",
+    "Period",
+    "Permanent",
+    "SingleUse",
     "SiteInfo",
+    "Validity",
     "VirtualKey",
+    "Weekly",
+    "WeeklyWindow",
 ]

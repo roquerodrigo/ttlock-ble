@@ -229,8 +229,9 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 ### Models & enums
 
 - **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `CloudApp` (presets in `CLOUD_APPS`), `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `DeviceFeatures`, `AutoLockLimits`, `LockSound`, `FingerprintEntry`, `CardEntry`, `PasscodeEntry`, `CyclicSchedule`
-- **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockFeature`, `LockVolume`, `LogOperate`, `PwdOperateType`
-- **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP)
+- **Validity:** `Validity` is one of `Permanent()`, `Period(start, end)`, `SingleUse(start, end)` or `Weekly(start, end, windows)`, where each `WeeklyWindow(weekday, start, end)` covers one `Weekday`. Dates are the lock's **local** time, to the minute, between 2000 and 2099
+- **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockErrorCode`, `LockFeature`, `LockVolume`, `LogOperate`, `PwdOperateType`, `Weekday`
+- **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP). Under `TTLockError`, `LockRejectedError` carries the lock's `error_code` when it refuses a command; credential commands narrow it to `CredentialAlreadyExistsError`, `CredentialNotFoundError` or `StorageFullError`, and raise `UnsupportedFeatureError` before sending anything the lock's feature mask does not advertise
 
 `VirtualKey.has_feature(LockFeature.PASSAGE_MODE)` tells whether the lock advertises a
 capability, from the feature value the cloud returns with each eKey — the same bit test the

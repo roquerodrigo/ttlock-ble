@@ -27,6 +27,15 @@ class FingerprintEntry:
     end_date: dt.datetime | None
 
     @property
+    def identifier(self) -> bytes:
+        """The 6-byte id the lock addresses this fingerprint by when changing or deleting it.
+
+        The lock sends one 6-byte id; `fingerprint_id` holds its first four
+        bytes and `slot` the last two, a split kept for compatibility.
+        """
+        return self.fingerprint_id + self.slot.to_bytes(2, "big")
+
+    @property
     def is_permanent(self) -> bool:
         """True if this fingerprint has no expiry date.
 
