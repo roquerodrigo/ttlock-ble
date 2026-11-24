@@ -174,6 +174,9 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock clear-passcodes <lock>` | Admin eKey | Wipe ALL keypad passcodes — no undo |
 | `ttlock get-passcodes <lock>` | Admin eKey | List the keypad passcodes the lock reports — **not exhaustive**: a passcode created by the official app and never yet used at the keypad does not appear |
 | `ttlock get-admin-passcode <lock>` / `set-admin-passcode <lock> <code>` | Admin eKey | Print / replace the keypad admin passcode |
+| `ttlock get-schedule <lock> --card <id>` / `--fingerprint <id>` | Admin eKey | Show a credential's weekly windows (ids as `get-cards` / `get-fingerprints` print them) |
+| `ttlock set-schedule <lock> --card <id> --window mon=08:00-12:00 …` | Admin eKey | Replace a credential's weekly windows (`--window` repeats; `workdays`, `weekend` and `daily` group days) |
+| `ttlock clear-schedule <lock> --card <id>` | Admin eKey | Remove a credential's weekly windows |
 | `ttlock get-auto-lock <lock>` | Admin eKey | Read the auto-lock delay in seconds |
 | `ttlock set-auto-lock <lock> <seconds>` | Admin eKey | Set the auto-lock delay in seconds (`0` disables it) |
 | `ttlock get-auto-lock-limits <lock>` | Admin eKey | Show the min/max auto-lock delay this lock accepts |
@@ -208,9 +211,11 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 | `passcodes.delete(code)` / `passcodes.clear()` | Admin eKey | Remove one passcode / every passcode |
 | `passcodes.list()` / `get_passcodes()` | Admin eKey | Keypad passcodes the lock reports (`list[PasscodeEntry]`) — **not exhaustive**: a passcode the official app generated offline won't appear until it is used at the keypad |
 | `admin_passcode.get()` / `admin_passcode.set(code)` | Admin eKey | Read / replace the keypad admin passcode |
+| `weekly_schedules.get(credential)` | Admin eKey | Weekly windows of a card or fingerprint (`tuple[WeeklyWindow, ...]`, empty when unrestricted) |
+| `weekly_schedules.set(credential, windows)` / `weekly_schedules.clear(credential)` | Admin eKey | Replace / remove those windows; the credential's validity dates stay as they are |
 | `add_passcode(...)` / `delete_passcode(...)` / `clear_passcodes()` | Admin eKey | Earlier string-based passcode calls, kept for compatibility |
-| `get_fingerprints()` | Admin eKey | Enrolled fingerprints (`list[FingerprintEntry]`) — blind to cyclic (day-of-week / time-range) restrictions |
-| `get_cards()` | Admin eKey | Enrolled IC cards/tags (`list[CardEntry]`) — blind to cyclic (day-of-week / time-range) restrictions |
+| `get_fingerprints()` | Admin eKey | Enrolled fingerprints (`list[FingerprintEntry]`); their weekly windows come from `weekly_schedules.get` |
+| `get_cards()` | Admin eKey | Enrolled IC cards/tags (`list[CardEntry]`); their weekly windows come from `weekly_schedules.get` |
 | `get_lock_sound()` | Admin eKey | Beep on/off and volume as the lock reports them (`LockSound`; `volume` is `None` on beeper-only hardware) |
 | `set_lock_sound(enabled)` | Admin eKey | Turn the keypad/lock beep on or off |
 | `set_lock_volume(level)` | Admin eKey | Set the keypad/lock beep volume, 1-5 or `LockVolume` (no-op on beeper-only hardware) |
@@ -234,11 +239,12 @@ Everything below is re-exported from the top-level `ttlock_ble` package.
 
 ### Models & enums
 
-- **Managers:** `PasscodeManager` (`client.passcodes`), `AdminPasscodeManager` (`client.admin_passcode`)
+- **Managers:** `PasscodeManager` (`client.passcodes`), `AdminPasscodeManager` (`client.admin_passcode`), `WeeklyScheduleManager` (`client.weekly_schedules`)
+- **Credential:** `Credential.card(number)`, `Credential.fingerprint(identifier)` or `Credential.of(entry)` names a card or fingerprint for the managers
 - **Models:** `VirtualKey`, `LockVersion`, `SiteInfo`, `CloudApp` (presets in `CLOUD_APPS`), `LockAdvertisement`, `LockEvent`, `LogEntry`, `DeviceInfo`, `DeviceProperties`, `DeviceFeatures`, `AutoLockLimits`, `LockSound`, `FingerprintEntry`, `CardEntry`, `PasscodeEntry`, `CyclicSchedule`
 - **Validity:** `Validity` is one of `Permanent()`, `Period(start, end)`, `SingleUse(start, end)` or `Weekly(windows, start=None, end=None)`, where each `WeeklyWindow(weekday, start, end)` covers one `Weekday` and the optional bounds limit the windows to a date range. Dates are the lock's **local** time, to the minute, between 2000 and 2099
-- **Enums:** `LockState`, `AutoLockOperate`, `KeyboardPwdType`, `LockErrorCode`, `LockFeature`, `LockVolume`, `LogOperate`, `PwdOperateType`, `Weekday`
-- **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP). Under `TTLockError`, `LockRejectedError` carries the lock's `error_code` when it refuses a command; credential commands narrow it to `CredentialAlreadyExistsError`, `CredentialNotFoundError` or `StorageFullError`, and raise `UnsupportedFeatureError` before sending anything the lock's feature mask does not advertise
+- **Enums:** `LockState`, `AutoLockOperate`, `CredentialType`, `KeyboardPwdType`, `LockErrorCode`, `LockFeature`, `LockVolume`, `LogOperate`, `PwdOperateType`, `Weekday`
+- **Exceptions:** `TTLockError` (BLE / protocol), `CloudError` (cloud HTTP). Under `TTLockError`, `LockRejectedError` carries the lock's `error_code` when it refuses a command; credential commands narrow it to `CredentialAlreadyExistsError`, `CredentialNotFoundError` or `StorageFullError`, and raise `UnsupportedFeatureError` before sending anything the lock's feature mask does not advertise. `ReplyTimeoutError` means the lock did not answer in time
 
 `VirtualKey.has_feature(LockFeature.PASSAGE_MODE)` tells whether the lock advertises a
 capability, from the feature value the cloud returns with each eKey — the same bit test the

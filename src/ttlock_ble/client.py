@@ -20,7 +20,12 @@ from .ble.constants import (
     DEVICE_INFO_SOFTWARE_REVISION_CHAR,
 )
 from .constants import KeyboardPwdType, LockErrorCode, LockState
-from .credentials import AdminChannel, AdminPasscodeManager, PasscodeManager
+from .credentials import (
+    AdminChannel,
+    AdminPasscodeManager,
+    PasscodeManager,
+    WeeklyScheduleManager,
+)
 from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError, UnsupportedFeatureError, rejection_error
 from .models import (
@@ -128,11 +133,14 @@ class TTLockClient:
             send=self._credential_command,
             query=self._query,
             require_feature=self._require_feature,
+            reopen=self._reopen_admin_link,
         )
         self.passcodes = PasscodeManager(channel)
         """Keypad passcodes: list, add, modify, delete and clear them."""
         self.admin_passcode = AdminPasscodeManager(channel)
         """The admin passcode that opens the lock's settings at the keypad."""
+        self.weekly_schedules = WeeklyScheduleManager(channel)
+        """The weekdays and hours each card and fingerprint works."""
 
     @classmethod
     def from_ble_device(
@@ -740,10 +748,31 @@ class TTLockClient:
         self._device_features = features
         return features
 
-    async def _query(self, opcode: int, payload: bytes, label: str) -> bytes:
+    async def _query(
+        self,
+        opcode: int,
+        payload: bytes,
+        label: str,
+        *,
+        timeout: float | None = None,  # noqa: ASYNC109 -- forwarded to the transport, which owns the deadline
+    ) -> bytes:
         """Send one command and return the decrypted reply, envelope included."""
-        resp = await self._transport.exchange(self._frame(opcode, payload))
+        resp = await self._transport.exchange(
+            self._frame(opcode, payload),
+            timeout=DEFAULT_RECV_TIMEOUT if timeout is None else timeout,
+        )
         return self._decrypt_response(resp, label)
+
+    async def _reopen_admin_link(self) -> None:
+        """Reconnect and authorize again, for a lock that went deaf mid-session.
+
+        Runs inside the caller's hold on the command lock; the keep-alive
+        window is left alone, since the session it belongs to goes on.
+        """
+        log.info("Reopening the BLE link to %s", self.key.lockMac)
+        await self._transport.disconnect()
+        await self._transport.connect()
+        await self._admin_handshake()
 
     async def _require_feature(self, action: str, feature: LockFeature) -> None:
         """Raise `UnsupportedFeatureError` unless the lock's own mask advertises `feature`.

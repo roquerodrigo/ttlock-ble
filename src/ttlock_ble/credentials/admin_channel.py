@@ -11,9 +11,9 @@ if TYPE_CHECKING:
 
     from ..constants import LockFeature
     from .command_sender import CommandSender
+    from .query_sender import QuerySender
 
     ReplyHandler = Callable[[bytes], bool]
-    QuerySender = Callable[[int, bytes, str], Awaitable[bytes]]
     FeatureCheck = Callable[[str, LockFeature], Awaitable[None]]
     Authorizer = Callable[[], Awaitable[None]]
 
@@ -27,7 +27,7 @@ class AdminChannel:
     Every call except `session` must run inside `session`.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 -- one collaborator per capability the managers get
         self,
         *,
         command_lock: asyncio.Lock,
@@ -35,6 +35,7 @@ class AdminChannel:
         send: CommandSender,
         query: QuerySender,
         require_feature: FeatureCheck,
+        reopen: Authorizer,
     ) -> None:
         """Wire the channel to the client's lock and helpers; no BLE I/O happens here."""
         self._command_lock = command_lock
@@ -42,6 +43,7 @@ class AdminChannel:
         self._send = send
         self._query = query
         self._require_feature = require_feature
+        self._reopen = reopen
 
     @contextlib.asynccontextmanager
     async def session(self) -> AsyncIterator[None]:
@@ -65,9 +67,23 @@ class AdminChannel:
         """
         return await self._send(opcode, payload, action, on_reply=on_reply, timeout=timeout)
 
-    async def query(self, opcode: int, payload: bytes, action: str) -> bytes:
-        """Send a read command and return the decrypted reply, envelope included, for its parser."""
-        return await self._query(opcode, payload, action)
+    async def query(
+        self,
+        opcode: int,
+        payload: bytes,
+        action: str,
+        *,
+        timeout: float | None = None,  # noqa: ASYNC109 -- forwarded to the transport, which owns the deadline
+    ) -> bytes:
+        """Send a read command and return the decrypted reply, envelope included, for its parser.
+
+        Raises `ReplyTimeoutError` when nothing arrives within `timeout`.
+        """
+        return await self._query(opcode, payload, action, timeout=timeout)
+
+    async def reopen(self) -> None:
+        """Reconnect and authorize again, keeping the session; for a lock that stopped answering."""
+        await self._reopen()
 
     async def require(self, action: str, feature: LockFeature) -> None:
         """Raise `UnsupportedFeatureError` unless the lock advertises `feature`."""

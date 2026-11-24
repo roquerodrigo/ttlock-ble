@@ -7,6 +7,7 @@ from .credential_already_exists import CredentialAlreadyExistsError
 from .credential_not_found import CredentialNotFoundError
 from .lock_rejected import LockRejectedError
 from .rejection import rejection_error
+from .reply_timeout import ReplyTimeoutError
 from .storage_full import StorageFullError
 from .ttlock import TTLockError
 from .unsupported_feature import UnsupportedFeatureError
@@ -16,6 +17,7 @@ __all__ = [
     "CredentialAlreadyExistsError",
     "CredentialNotFoundError",
     "LockRejectedError",
+    "ReplyTimeoutError",
     "StorageFullError",
     "TTLockError",
     "UnsupportedFeatureError",

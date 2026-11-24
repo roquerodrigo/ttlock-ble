@@ -6,6 +6,7 @@ from .auto_lock_limits import AutoLockLimits
 from .card_entry import CardEntry
 from .cloud_app import CLOUD_APPS, CloudApp
 from .cloud_credentials import CloudCredentials
+from .credential import Credential
 from .cyclic_schedule import CyclicSchedule
 from .device_features import DeviceFeatures
 from .device_info import DeviceInfo
@@ -27,6 +28,7 @@ __all__ = [
     "CardEntry",
     "CloudApp",
     "CloudCredentials",
+    "Credential",
     "CyclicSchedule",
     "DeviceFeatures",
     "DeviceInfo",

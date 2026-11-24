@@ -25,6 +25,7 @@ from .models import (
     AutoLockLimits,
     CardEntry,
     CloudApp,
+    Credential,
     DeviceFeatures,
     DeviceInfo,
     DeviceProperties,
@@ -123,6 +124,42 @@ def _validate[T](build: Callable[[], T]) -> T:
         return build()
     except ValueError as error:
         raise typer.BadParameter(str(error)) from None
+
+
+def _parse_window(value: str) -> tuple[WeeklyWindow, ...]:
+    days, separator, hours = value.partition("=")
+    opens, dash, closes = hours.partition("-")
+    if not separator or not dash:
+        raise typer.BadParameter(f"--window {value!r} must look like mon=08:00-12:00")
+    start = _parse_time(opens, "--window")
+    end = _parse_time(closes, "--window")
+    try:
+        return tuple(WeeklyWindow(day, start, end) for day in _parse_days(days))
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from None
+
+
+def _schedule_credential(card: str | None, fingerprint: str | None) -> Credential:
+    if (card is None) == (fingerprint is None):
+        raise typer.BadParameter("give exactly one of --card or --fingerprint")
+    try:
+        if card is not None:
+            return Credential.card(int(card, 16))
+        return Credential.fingerprint(bytes.fromhex(fingerprint or ""))
+    except ValueError as error:
+        raise typer.BadParameter(f"credential id: {error}") from None
+
+
+def _describe(credential: Credential) -> str:
+    kind = "card" if credential.card_number is not None else "fingerprint"
+    return f"{kind} {credential.identifier.hex()}"
+
+
+def _echo_windows(windows: tuple[WeeklyWindow, ...]) -> None:
+    if not windows:
+        typer.echo("no weekly windows: works whenever its dates allow")
+    for window in windows:
+        typer.echo(f"  {window.weekday.name.title():<9} {window.start:%H:%M}-{window.end:%H:%M}")
 
 
 def _load_env() -> tuple[str, str]:
@@ -625,13 +662,8 @@ def get_fingerprints(
     for entry in entries:
         start = "not set" if entry.start_date is None else entry.start_date.isoformat(sep=" ")
         end = "permanent" if entry.end_date is None else entry.end_date.isoformat(sep=" ")
-        typer.echo(
-            f"  slot={entry.slot:<3} id={entry.fingerprint_id.hex()}  start={start}  end={end}"
-        )
-    typer.echo(
-        "note: this cannot detect cyclic (day-of-week/time-range) restrictions - "
-        "a fingerprint above may still be limited to specific days/hours."
-    )
+        typer.echo(f"  id={entry.identifier.hex()}  start={start}  end={end}")
+    typer.echo("note: weekly windows are not listed here - see get-schedule.")
 
 
 @app.command("get-cards")
@@ -650,10 +682,77 @@ def get_cards(
         start = "not set" if entry.start_date is None else entry.start_date.isoformat(sep=" ")
         end = "permanent" if entry.end_date is None else entry.end_date.isoformat(sep=" ")
         typer.echo(f"  id={entry.card_id.hex()}  start={start}  end={end}")
-    typer.echo(
-        "note: this cannot detect cyclic (day-of-week/time-range) restrictions - "
-        "a card above may still be limited to specific days/hours."
-    )
+    typer.echo("note: weekly windows are not listed here - see get-schedule.")
+
+
+_CARD_HELP = "card id, in hex as get-cards prints it"
+_FINGERPRINT_HELP = "fingerprint id, in hex as get-fingerprints prints it"
+_WINDOW_OPTION = typer.Option(
+    ..., help="DAYS=HH:MM-HH:MM, e.g. mon=08:00-12:00 or workdays=08:00-18:00; repeatable"
+)
+
+
+@app.command("get-schedule")
+def get_schedule(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    card: str | None = typer.Option(None, help=_CARD_HELP),
+    fingerprint: str | None = typer.Option(None, help=_FINGERPRINT_HELP),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Show the weekly windows of a card or fingerprint (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    credential = _schedule_credential(card, fingerprint)
+    key = _resolve_key(target)
+    _echo_windows(asyncio.run(_run_get_schedule(key, credential)))
+
+
+@app.command("set-schedule")
+def set_schedule(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    window: list[str] = _WINDOW_OPTION,
+    card: str | None = typer.Option(None, help=_CARD_HELP),
+    fingerprint: str | None = typer.Option(None, help=_FINGERPRINT_HELP),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Replace the weekly windows of a card or fingerprint; its dates stay as they are."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    credential = _schedule_credential(card, fingerprint)
+    windows = tuple(item for value in window for item in _parse_window(value))
+    key = _resolve_key(target)
+    if not yes:
+        typer.confirm(
+            f"Replace the weekly windows of {_describe(credential)} on "
+            f"{key.lockAlias or key.lockMac}?",
+            abort=True,
+        )
+    asyncio.run(_run_set_schedule(key, credential, windows))
+    typer.echo(f"✓ {len(windows)} weekly window(s) set")
+
+
+@app.command("clear-schedule")
+def clear_schedule(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    card: str | None = typer.Option(None, help=_CARD_HELP),
+    fingerprint: str | None = typer.Option(None, help=_FINGERPRINT_HELP),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Remove the weekly windows, so the credential works whenever its dates allow."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    credential = _schedule_credential(card, fingerprint)
+    key = _resolve_key(target)
+    if not yes:
+        typer.confirm(
+            f"Remove the weekly windows of {_describe(credential)} on "
+            f"{key.lockAlias or key.lockMac}?",
+            abort=True,
+        )
+    asyncio.run(_run_clear_schedule(key, credential))
+    typer.echo("✓ weekly windows removed")
 
 
 async def _run_unlock(key: VirtualKey) -> None:
@@ -721,6 +820,23 @@ async def _run_get_admin_passcode(key: VirtualKey) -> str:
 async def _run_set_admin_passcode(key: VirtualKey, code: str) -> None:
     async with TTLockClient(key) as c:
         await c.admin_passcode.set(code)
+
+
+async def _run_get_schedule(key: VirtualKey, credential: Credential) -> tuple[WeeklyWindow, ...]:
+    async with TTLockClient(key) as c:
+        return await c.weekly_schedules.get(credential)
+
+
+async def _run_set_schedule(
+    key: VirtualKey, credential: Credential, windows: tuple[WeeklyWindow, ...]
+) -> None:
+    async with TTLockClient(key) as c:
+        await c.weekly_schedules.set(credential, windows)
+
+
+async def _run_clear_schedule(key: VirtualKey, credential: Credential) -> None:
+    async with TTLockClient(key) as c:
+        await c.weekly_schedules.clear(credential)
 
 
 async def _run_delete_passcode(key: VirtualKey, code: str) -> None:
