@@ -292,8 +292,9 @@ class CardManager:
         2099-01-01 00:00; confirmed on an SN484_PV53 lock, which lists the
         card as permanent and accepts it. Any validity but `Weekly` also
         clears the card's windows, which is not an error when it has none.
-        A start date in the future is enforced: after modifying a card to a
-        period starting the next day, the lock rejected it (SN484_PV53).
+        A start date in the future is enforced: after the card was modified
+        to a period starting the next day, the lock accepted the change and
+        rejected the card when it was presented (SN484_PV53).
         Whether a start date already in the past is stored is not tested
         (the listing shows it as "not set").
 
