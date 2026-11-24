@@ -11,6 +11,7 @@ from ttlock_ble import LockVersion, VirtualKey
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
 SYNTHETIC_AES_KEY_STR = "a1,b2,c3,d4,e5,f6,07,18,29,3a,4b,5c,6d,7e,8f,90"
 SYNTHETIC_LOCK_MAC = "AA:BB:CC:11:22:33"
@@ -45,3 +46,18 @@ def patched_connect(monkeypatch: pytest.MonkeyPatch) -> Callable[[object], None]
         monkeypatch.setattr(transport_mod, "establish_connection", _establish)
 
     return _install
+
+
+@pytest.fixture
+def cli_app(tmp_path: Path, monkeypatch):
+    """Import the CLI fresh with KEY_STORE pointed at a tmp file."""
+    store = tmp_path / "keys.json"
+    monkeypatch.setenv("TTLOCK_KEY_STORE", str(store))
+    monkeypatch.setenv("TTLOCK_EMAIL", "user@example.com")
+    monkeypatch.setenv("TTLOCK_PASSWORD", "secret")
+    import importlib
+
+    from ttlock_ble import cli as cli_module
+
+    importlib.reload(cli_module)
+    return cli_module, store

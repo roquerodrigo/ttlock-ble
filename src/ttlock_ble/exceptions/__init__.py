@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from .card_presented_late import CardPresentedLateError
 from .cloud import CloudError
 from .credential_already_exists import CredentialAlreadyExistsError
 from .credential_not_found import CredentialNotFoundError
+from .enrollment_timeout import EnrollmentTimeoutError
 from .lock_rejected import LockRejectedError
 from .rejection import rejection_error
 from .reply_timeout import ReplyTimeoutError
@@ -13,9 +15,11 @@ from .ttlock import TTLockError
 from .unsupported_feature import UnsupportedFeatureError
 
 __all__ = [
+    "CardPresentedLateError",
     "CloudError",
     "CredentialAlreadyExistsError",
     "CredentialNotFoundError",
+    "EnrollmentTimeoutError",
     "LockRejectedError",
     "ReplyTimeoutError",
     "StorageFullError",

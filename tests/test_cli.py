@@ -63,21 +63,6 @@ _GUEST_ARRIVES = dt.datetime(2026, 12, 24, 18)  # noqa: DTZ001 -- lock-local wal
 _GUEST_LEAVES = dt.datetime(2026, 12, 26, 12)  # noqa: DTZ001 -- lock-local wall clock
 
 
-@pytest.fixture
-def cli_app(tmp_path: Path, monkeypatch):
-    """Import the CLI fresh with KEY_STORE pointed at a tmp file."""
-    store = tmp_path / "keys.json"
-    monkeypatch.setenv("TTLOCK_KEY_STORE", str(store))
-    monkeypatch.setenv("TTLOCK_EMAIL", "user@example.com")
-    monkeypatch.setenv("TTLOCK_PASSWORD", "secret")
-    import importlib
-
-    from ttlock_ble import cli as cli_module
-
-    importlib.reload(cli_module)
-    return cli_module, store
-
-
 def _write_keys(store: Path) -> None:
     store.parent.mkdir(parents=True, exist_ok=True)
     store.write_text(json.dumps([make_virtual_key().to_dict()]))
@@ -527,6 +512,18 @@ class TestBleCommands:
         result = runner.invoke(cli_module.app, ["add-passcode", "2", "1234", *options])
         assert result.exit_code == 0, result.output
         client.passcodes.add.assert_awaited_once_with("1234", validity)
+
+    @pytest.mark.parametrize(
+        "extra",
+        [["--start", "2026-12-24T18:00", "--end", "2026-12-26T12:00"], ["--single-use"]],
+        ids=["dates", "single use"],
+    )
+    def test_weekly_passcode_refuses_dates_instead_of_dropping_them(self, cli_app, extra) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        weekly = ["--days", "mon", "--from", "08:00", "--to", "09:00"]
+        message = _usage_error(cli_module.app, ["add-passcode", "2", "1234", *weekly, *extra])
+        assert "without a date range" in message
 
     @pytest.mark.parametrize(
         ("options", "message"),
@@ -1049,7 +1046,7 @@ class TestBleCommands:
         self._patch_client(cli_module, monkeypatch, client)
         result = runner.invoke(cli_module.app, ["get-cards", "2", "-v"])
         assert result.exit_code == 0, result.output
-        assert "id=11223344" in result.output
+        assert "id=11223344  number=287454020" in result.output
         assert "end=permanent" in result.output
         assert "id=11223345" in result.output
         assert "start=not set" in result.output

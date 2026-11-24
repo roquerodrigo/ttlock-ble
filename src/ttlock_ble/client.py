@@ -23,6 +23,7 @@ from .constants import KeyboardPwdType, LockErrorCode, LockState
 from .credentials import (
     AdminChannel,
     AdminPasscodeManager,
+    CardManager,
     PasscodeManager,
     WeeklyScheduleManager,
 )
@@ -62,7 +63,6 @@ log: logging.Logger = logging.getLogger("ttlock_ble.client")
 # 200 fingerprints per lock, so the caps sit well above what any firmware
 # can hold - see `get_fingerprints` and `get_cards`.
 _MAX_FINGERPRINT_ENTRIES = 300
-_MAX_CARD_ENTRIES = 300
 # Each "command received" restarts the reply deadline, so a lock repeating it
 # would otherwise keep a command waiting forever.
 _MAX_ACKNOWLEDGEMENTS = 5
@@ -141,6 +141,8 @@ class TTLockClient:
         """The admin passcode that opens the lock's settings at the keypad."""
         self.weekly_schedules = WeeklyScheduleManager(channel)
         """The weekdays and hours each card and fingerprint works."""
+        self.cards = CardManager(channel, self.weekly_schedules)
+        """IC cards: list, enroll by tap, add, modify, delete and clear them."""
 
     @classmethod
     def from_ble_device(
@@ -583,25 +585,13 @@ class TTLockClient:
         return entries
 
     async def get_cards(self) -> list[CardEntry]:
-        """Read every enrolled IC card (tag) via the confirmed indexed CMD 0x05/0x01 query.
+        """Read every enrolled IC card (tag), without its weekly windows.
 
-        Admin-gated - see `set_lock_sound`.
-
-        Loops the index from 0, one BLE round-trip per card, over a
-        single connection and a single admin handshake - mirrors
-        `get_fingerprints` exactly. Stops cleanly at the lock's own
-        end-of-list response. Raises `TTLockError` if the lock never
-        sends it within `_MAX_CARD_ENTRIES` queries, rather than
-        silently returning a possibly-incomplete list.
-
-        Known limitation: this cannot detect whether a card also has a
-        cyclic (day-of-week/time-range) restriction - that data lives in
-        a separate mechanism (CMD 0x70) this method doesn't query, and
-        that is not implemented anywhere in this library yet for any
-        credential type. A card returned here as permanent or timed may
-        in practice also be restricted to specific days/hours. Do not
-        treat the absence of that information as confirmation a card is
-        unrestricted.
+        Same as `cards.list(include_weekly_windows=False)`, which documents
+        the query. Each entry's `weekly_windows` is `None`: this cannot
+        tell whether a card also has weekly (day-of-week/time-range)
+        windows, so do not treat a card as unrestricted on this alone - use
+        `cards.list()` or `weekly_schedules.get`.
 
         The 4-byte `card_id` path, a multi-card listing (four cards,
         mixing timed and permanent entries), the zero-card case and the
@@ -611,29 +601,7 @@ class TTLockClient:
         `commands.card.parse_card_list_response` for how both are
         decoded.
         """
-        async with self._command_lock:
-            await self._admin_handshake()
-            entries: list[CardEntry] = []
-            for index in range(_MAX_CARD_ENTRIES):
-                resp = await self._transport.exchange(
-                    self._frame(cmd.CMD_MANAGE_IC_CARD, cmd.payload_card_list(index))
-                )
-                plain = self._decrypt_response(resp, "get_cards")
-                log.debug("card list response: length=%d", len(plain))
-                try:
-                    entry = cmd.parse_card_list_response(plain)
-                except (RuntimeError, ValueError) as error:
-                    raise TTLockError(f"Failed to get_cards: {error}") from None
-                if entry is None:
-                    break
-                entries.append(entry)
-            else:
-                raise TTLockError(
-                    f"Failed to get_cards: exceeded safety cap of "
-                    f"{_MAX_CARD_ENTRIES} entries without an end-of-list response"
-                )
-        log.info("fetched %d card(s)", len(entries))
-        return entries
+        return await self.cards.list(include_weekly_windows=False)
 
     async def get_lock_sound(self) -> LockSound:
         """Read whether the keypad/lock beep is on and, when reported, its volume.

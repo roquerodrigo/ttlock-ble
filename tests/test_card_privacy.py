@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from tests.conftest import make_virtual_key
-from tests.test_client_ble import _resp_frame
+from tests.test_client_ble import _check_admin_plain, _resp_frame, _status_plain
 from ttlock_ble import TTLockClient, TTLockError
 from ttlock_ble import commands as cmd
 
@@ -25,6 +25,13 @@ _CARD_ID = bytes([0xDE, 0xAD, 0xBE, 0xEF])
 def _response(*, card_id: bytes = _CARD_ID, start: bytes = cmd.START_DATE_SENTINEL) -> bytes:
     data = bytes([0x64, 0x01, 0x00, 0x01]) + card_id + start + cmd.END_DATE_SENTINEL
     return bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS]) + data
+
+
+def _admin_replies(key):
+    return [
+        _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+        _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+    ]
 
 
 def _assert_private(text: str, response: bytes) -> None:
@@ -37,9 +44,9 @@ async def test_successful_read_retains_values_without_logging_credentials(caplog
     client = TTLockClient(key)
     response = _response()
     end_of_list = bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS, 0x64, 0x01, 0xFF, 0xFF])
-    client._admin_handshake = AsyncMock()
     client._transport.exchange = AsyncMock(
         side_effect=[
+            *_admin_replies(key),
             _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, response),
             _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, end_of_list),
         ]
@@ -72,9 +79,8 @@ async def test_parser_and_public_error_tracebacks_redact_credentials(
 
     key = make_virtual_key()
     client = TTLockClient(key)
-    client._admin_handshake = AsyncMock()
     client._transport.exchange = AsyncMock(
-        return_value=_resp_frame(key, cmd.CMD_MANAGE_IC_CARD, response)
+        side_effect=[*_admin_replies(key), _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, response)]
     )
     with caplog.at_level(logging.DEBUG), pytest.raises(TTLockError) as public:
         await client.get_cards()

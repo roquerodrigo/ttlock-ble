@@ -18,8 +18,9 @@ from . import commands as cmd
 from ._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from .client import TTLockClient
 from .cloud import TTLockCloud
-from .constants import CredentialType, KeyboardPwdType, LockVolume, Weekday
-from .exceptions import CloudError
+from .constants import CardEnrollmentStep, CredentialType, KeyboardPwdType, LockVolume, Weekday
+from .credentials.card_manager import ENROLL_SAFETY_WINDOW
+from .exceptions import CloudError, TTLockError
 from .models import (
     CLOUD_APPS,
     AutoLockLimits,
@@ -42,7 +43,7 @@ from .models import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Coroutine
 
     from .constants import LockState
 
@@ -103,6 +104,11 @@ def _passcode_validity(
         if days is not None:
             if window_start is None or window_end is None:
                 raise typer.BadParameter("--days needs --from and --to")
+            if start is not None or end is not None or single_use:
+                raise typer.BadParameter(
+                    "a weekly passcode repeats without a date range or single use: "
+                    "drop --start, --end and --single-use"
+                )
             opens = _parse_time(window_start, "--from")
             closes = _parse_time(window_end, "--to")
             return Weekly(tuple(WeeklyWindow(day, opens, closes) for day in _parse_days(days)))
@@ -116,6 +122,50 @@ def _passcode_validity(
         return kind(_parse_moment(start, "--start"), _parse_moment(end, "--end"))
     except ValueError as error:
         raise typer.BadParameter(str(error)) from None
+
+
+def _card_validity(
+    *,
+    start: str | None,
+    end: str | None,
+    days: str | None,
+    window_start: str | None,
+    window_end: str | None,
+) -> Validity:
+    """Build a card's validity: like a passcode's, but `--days` may also carry a date range."""
+    if days is None:
+        return _passcode_validity(
+            start=start,
+            end=end,
+            single_use=False,
+            days=None,
+            window_start=window_start,
+            window_end=window_end,
+        )
+    weekly = _passcode_validity(
+        start=None,
+        end=None,
+        single_use=False,
+        days=days,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    if start is None and end is None:
+        return weekly
+    if start is None or end is None:
+        raise typer.BadParameter("--start and --end go together")
+    try:
+        return Weekly(
+            weekly.windows if isinstance(weekly, Weekly) else (),
+            _parse_moment(start, "--start"),
+            _parse_moment(end, "--end"),
+        )
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from None
+
+
+def _card_credential(number: int) -> Credential:
+    return _validate(lambda: Credential.card(number))
 
 
 def _validate[T](build: Callable[[], T]) -> T:
@@ -669,6 +719,138 @@ def get_fingerprints(
     typer.echo("note: weekly windows are not listed here - see get-schedule.")
 
 
+_START_HELP = "valid from, lock-local ISO time"
+_END_HELP = "valid until, lock-local ISO time"
+_DAYS_HELP = "weekly: daily, workdays, weekend, or one day; with --from and --to"
+
+
+def _run_card_command[T](coroutine: Coroutine[object, object, T]) -> T:
+    """Run a card command, turning a library error into one error line and exit code 1."""
+    try:
+        return asyncio.run(coroutine)
+    except TTLockError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(1) from None
+
+
+@app.command("enroll-card")
+def enroll_card(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    start: str | None = typer.Option(None, help=_START_HELP),
+    end: str | None = typer.Option(None, help=_END_HELP),
+    days: str | None = typer.Option(None, help=_DAYS_HELP),
+    window_start: str | None = typer.Option(None, "--from", help="weekly window start, HH:MM"),
+    window_end: str | None = typer.Option(None, "--to", help="weekly window end, HH:MM"),
+    timeout: float = typer.Option(
+        ENROLL_SAFETY_WINDOW,
+        help="seconds to wait for the card; the lock may listen about 10-20 s after that, "
+        "so the command waits at least 30 s in all",
+    ),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Enroll a card by tapping it on the lock: permanent, dated or weekly (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    validity = _card_validity(
+        start=start, end=end, days=days, window_start=window_start, window_end=window_end
+    )
+    _validate(lambda: cmd.check_card_validity(validity))
+    key = _resolve_key(target)
+    credential = _run_card_command(_run_enroll_card(key, validity, timeout))
+    typer.echo(
+        f"✓ card enrolled: number {credential.card_number} (id {credential.identifier.hex()})"
+    )
+
+
+@app.command("add-card")
+def add_card(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    number: int = typer.Argument(..., help="card number, in decimal"),
+    start: str | None = typer.Option(None, help=_START_HELP),
+    end: str | None = typer.Option(None, help=_END_HELP),
+    days: str | None = typer.Option(None, help=_DAYS_HELP),
+    window_start: str | None = typer.Option(None, "--from", help="weekly window start, HH:MM"),
+    window_end: str | None = typer.Option(None, "--to", help="weekly window end, HH:MM"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Add a card by its number, without tapping it (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    validity = _card_validity(
+        start=start, end=end, days=days, window_start=window_start, window_end=window_end
+    )
+    credential = _card_credential(number)
+    _validate(lambda: cmd.payload_card_add(credential.identifier, validity))
+    key = _resolve_key(target)
+    _run_card_command(_run_add_card(key, number, validity))
+    typer.echo(f"✓ card {number} added")
+
+
+@app.command("modify-card")
+def modify_card(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    number: int = typer.Argument(..., help="card number, in decimal"),
+    permanent: bool = typer.Option(False, "--permanent", help="remove its dates and windows"),
+    start: str | None = typer.Option(None, help=_START_HELP),
+    end: str | None = typer.Option(None, help=_END_HELP),
+    days: str | None = typer.Option(None, help=_DAYS_HELP),
+    window_start: str | None = typer.Option(None, "--from", help="weekly window start, HH:MM"),
+    window_end: str | None = typer.Option(None, "--to", help="weekly window end, HH:MM"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Replace a card's dates and weekly windows (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    given = any(value is not None for value in (start, end, days, window_start, window_end))
+    if permanent == given:
+        raise typer.BadParameter("give --permanent, or the new dates and/or --days")
+    validity = _card_validity(
+        start=start, end=end, days=days, window_start=window_start, window_end=window_end
+    )
+    credential = _card_credential(number)
+    _validate(lambda: cmd.payload_card_modify(credential.identifier, validity))
+    key = _resolve_key(target)
+    _run_card_command(_run_modify_card(key, number, validity))
+    typer.echo(f"✓ card {number} updated")
+
+
+@app.command("delete-card")
+def delete_card(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    number: int = typer.Argument(..., help="card number, in decimal"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Remove one card (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    _card_credential(number)
+    key = _resolve_key(target)
+    if not yes:
+        typer.confirm(f"Remove card {number} from {key.lockAlias or key.lockMac}?", abort=True)
+    _run_card_command(_run_delete_card(key, number))
+    typer.echo(f"✓ card {number} removed")
+
+
+@app.command("clear-cards")
+def clear_cards(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Remove EVERY card from the lock - no undo (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    if not yes:
+        typer.confirm(
+            f"This removes EVERY card from {key.lockAlias or key.lockMac}, not just one. Continue?",
+            abort=True,
+        )
+    _run_card_command(_run_clear_cards(key))
+    typer.echo("✓ all cards cleared")
+
+
 @app.command("get-cards")
 def get_cards(
     target: str = typer.Argument(..., help="lockId, alias, or MAC"),
@@ -684,7 +866,8 @@ def get_cards(
     for entry in entries:
         start = "not set" if entry.start_date is None else entry.start_date.isoformat(sep=" ")
         end = "permanent" if entry.end_date is None else entry.end_date.isoformat(sep=" ")
-        typer.echo(f"  id={entry.card_id.hex()}  start={start}  end={end}")
+        number = int.from_bytes(entry.card_id, "big")
+        typer.echo(f"  id={entry.card_id.hex()}  number={number}  start={start}  end={end}")
     typer.echo("note: weekly windows are not listed here - see get-schedule.")
 
 
@@ -814,6 +997,35 @@ async def _run_modify_passcode(
 ) -> None:
     async with TTLockClient(key) as c:
         await c.passcodes.modify(code, new_code=new_code, validity=validity)
+
+
+async def _run_enroll_card(key: VirtualKey, validity: Validity, wait_seconds: float) -> Credential:
+    def report(step: CardEnrollmentStep) -> None:
+        if step == CardEnrollmentStep.WAITING_FOR_CARD:
+            typer.echo(f"Present the card to the lock now (waiting up to {wait_seconds:g} s)...")
+
+    async with TTLockClient(key) as c:
+        return await c.cards.enroll(validity, report, timeout=wait_seconds)
+
+
+async def _run_add_card(key: VirtualKey, number: int, validity: Validity) -> None:
+    async with TTLockClient(key) as c:
+        await c.cards.add(Credential.card(number), validity)
+
+
+async def _run_modify_card(key: VirtualKey, number: int, validity: Validity) -> None:
+    async with TTLockClient(key) as c:
+        await c.cards.modify(Credential.card(number), validity)
+
+
+async def _run_delete_card(key: VirtualKey, number: int) -> None:
+    async with TTLockClient(key) as c:
+        await c.cards.delete(Credential.card(number))
+
+
+async def _run_clear_cards(key: VirtualKey) -> None:
+    async with TTLockClient(key) as c:
+        await c.cards.clear()
 
 
 async def _run_get_admin_passcode(key: VirtualKey) -> str:

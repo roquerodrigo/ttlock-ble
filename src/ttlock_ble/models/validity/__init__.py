@@ -1,7 +1,7 @@
 """Validity: when a credential is accepted.
 
-Passcodes take every form today (`PasscodeManager.add`); card and
-fingerprint management will take the same values.
+Passcodes take every form (`PasscodeManager.add`); cards take `Permanent`,
+`Period` and `Weekly` (`CardManager`), and fingerprints will take the same.
 """
 
 from __future__ import annotations

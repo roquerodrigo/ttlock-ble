@@ -1,0 +1,204 @@
+{
+ "description": "Decrypted plaintexts of the official TTLock app managing IC cards (Android HCI logs, decoded with ttlock_btsnoop_decode.py). SN484_PV53, fw 6.5.15.240522. Authentication frames and the trailing CHECK_USER_TIME/CHECK_RANDOM/CALIBRATE_TIME after an enrollment are omitted. RX values are RESPONSE (0x54) payloads; pushes are unsolicited RESPONSE frames. The byte after the echo and status is the battery level.",
+ "sanitized": "Card ids replaced consistently with placeholder values (55667788, 11223344); all other bytes are as captured.",
+ "operations": [
+  {
+   "operation": "enroll by tap, permanent",
+   "captured": "2026-11-24",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 2 (add), op 1: enter add mode",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "waiting for a card",
+     "plaintext": "0501440202"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "card presented after 7 s: card id",
+     "plaintext": "050144020155667788"
+    }
+   ],
+   "note": "No validity command follows: a card added in add mode is permanent."
+  },
+  {
+   "operation": "enroll by tap, no card presented",
+   "captured": "2026-11-24 (twice)",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 2 (add), op 1: enter add mode",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "waiting for a card",
+     "plaintext": "0501440202"
+    }
+   ],
+   "note": "The lock sent nothing more; the app gave up and disconnected. What happens to a card presented later: not tested."
+  },
+  {
+   "operation": "enroll by tap, second card, permanent",
+   "captured": "2026-11-24",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 2 (add), op 1",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "waiting for a card",
+     "plaintext": "0501440202"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "card presented after 4 s",
+     "plaintext": "050144020111223344"
+    }
+   ]
+  },
+  {
+   "operation": "clear all cards (app: reset)",
+   "captured": "2026-11-24",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 4: delete all cards (two cards were enrolled)",
+     "plaintext": "04"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "reply after 0.9 s",
+     "plaintext": "05014404"
+    }
+   ]
+  },
+  {
+   "operation": "delete one card",
+   "captured": "2026-11-24",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 3: delete card",
+     "plaintext": "0355667788"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "reply after 0.5 s",
+     "plaintext": "05014303"
+    }
+   ]
+  },
+  {
+   "operation": "enroll by tap, timed",
+   "captured": "2026-11-22",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 2 (add), op 1",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "waiting for a card",
+     "plaintext": "0501400202"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "card presented",
+     "plaintext": "050140020155667788"
+    },
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 5 validity 2026-11-22 19:46 .. 2027-11-22 19:46",
+     "plaintext": "05556677881a0b16132e1b0b16132e"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "05014005"
+    }
+   ]
+  },
+  {
+   "operation": "change a recurring card's validity and weekly days",
+   "captured": "2026-11-22",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x05",
+     "meaning": "sub-op 5 validity 2026-11-19 01:00 .. 2027-11-20 00:59 (re-sent although unchanged)",
+     "plaintext": "05112233441a0b1301001b0b14003b"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "05014005"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CMD 0x70 CLEAR (op 4) for the card",
+     "plaintext": "04020411223344"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "70014004"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CMD 0x70 ADD Tue 20:14-21:14",
+     "plaintext": "02020411223344010200140e150e00000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "70014002"
+    },
+    {
+     "direction": "TX",
+     "command": "0x70",
+     "meaning": "CMD 0x70 ADD Fri 20:14-21:14",
+     "plaintext": "02020411223344010500140e150e00000000"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "70014002"
+    }
+   ]
+  }
+ ],
+ "sdk_only": {
+  "add_by_number": "[02][card id: 4 bytes, or 8 if the decimal number has more than 10 digits][start yy mm dd HH mm][end yy mm dd HH mm]; with no dates the SDK fills about 2000-02-01 .. 2099-12-01. The app offers no add-by-number, so this is not captured; not tested on hardware.",
+  "modify": "[05][card id][start][end], dates as given (no permanent default in the SDK)."
+ }
+}

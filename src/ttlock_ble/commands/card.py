@@ -1,27 +1,40 @@
-"""IC card (tag) listing - CMD 0x05, sub-op 0x01 (IC_SEARCH, the confirmed indexed query).
+"""IC card management - CMD 0x05: list (sub-op 1), add (2), delete (3), clear (4), modify (5).
 
-Reverse-engineered from device traffic. Only the list sub-op is confirmed;
-this module deliberately does not model enroll/delete/edit-validity or any
-other sub-op that may share CMD 0x05 - see `opcodes.CMD_MANAGE_IC_CARD`.
-Read-only, like `fingerprint`: adding, deleting or editing a card is out
-of scope here.
+Reverse-engineered from device traffic. Listing, enrolling by tap, deleting
+one card, clearing every card and changing a card's dates were captured
+from the official app on an SN484_PV53 lock (firmware 6.5.15.240522).
+Adding a card by its number is SDK-only (the app does not offer it) and was
+confirmed on the same lock by running this SDK.
 
-Critical limitation, worth repeating at the protocol layer because it is
-easy to miss at the call site: this query has zero visibility into cyclic
-(day-of-week/time-range) restrictions. CMD 0x70, the mechanism that would
-carry that data, is not implemented anywhere in this library yet, for any
-credential type. A card decoded here as permanent or timed may in
-practice also be cyclically restricted - see `models.CardEntry`.
+The listing has zero visibility into weekly (day-of-week/time-range)
+windows, which CMD 0x70 carries - see `models.CardEntry` and
+`credentials.WeeklyScheduleManager`.
 """
 
 from __future__ import annotations
 
-from ..models import CardEntry
-from .encoding import decode_date5
+from typing import TYPE_CHECKING
+
+from ..models import CardEntry, Permanent, SingleUse
+from .encoding import decode_date5, encode_date5
 from .envelope import RESPONSE_SUCCESS, parse_response_status
 from .fingerprint import END_DATE_SENTINEL, START_DATE_SENTINEL
 
+if TYPE_CHECKING:
+    from ..models import Validity
+
 _LIST_OPERATION = 0x01
+_ADD_OPERATION = 0x02
+_DELETE_OPERATION = 0x03
+_CLEAR_OPERATION = 0x04
+_MODIFY_OPERATION = 0x05
+
+# Sub-op 2 with this operand puts the lock in add mode, waiting for a card.
+_ENTER_ADD_MODE = 0x01
+# Replies to it, after [battery][op echo]: the lock is waiting, or a card was read.
+_WAITING_FOR_CARD = 0x02
+_CARD_READ = 0x01
+_ENROLL_WAITING_DATA_LENGTH = 3
 
 # A SUCCESS response's data is [battery][op_echo][position:2][card_id][start:5][end:5].
 # `card_id`'s length is not confirmed to be the same for every lock: the
@@ -97,3 +110,77 @@ def parse_card_list_response(plaintext: bytes) -> CardEntry | None:
         start_date=None if start_date_raw == START_DATE_SENTINEL else decode_date5(start_date_raw),
         end_date=None if end_date_raw == END_DATE_SENTINEL else decode_date5(end_date_raw),
     )
+
+
+def payload_card_enroll() -> bytes:
+    """Build the CMD 0x05 sub-op 0x02 payload that puts the lock in add mode, waiting for a tap."""
+    return bytes([_ADD_OPERATION, _ENTER_ADD_MODE])
+
+
+def parse_card_enrollment_reply(data: bytes) -> bytes | None:
+    """Decode one reply to the add-mode command: `None` while waiting, else the card's id.
+
+    `data` is a reply's data after the `[0x05][status]` envelope:
+    `[battery][02][02]` says the lock waits for a card, and
+    `[battery][02][01][card id]` is pushed when one is presented (captured
+    with a 4-byte id; an 8-byte one is accepted too, from the SDK, not
+    tested). Raises `ValueError` for anything else, without echoing it.
+    """
+    if len(data) >= _ENROLL_WAITING_DATA_LENGTH and data[1] == _ADD_OPERATION:
+        if len(data) == _ENROLL_WAITING_DATA_LENGTH and data[2] == _WAITING_FOR_CARD:
+            return None
+        card_id = data[3:]
+        if data[2] == _CARD_READ and len(card_id) in (_SHORT_CARD_ID_LENGTH, _LONG_CARD_ID_LENGTH):
+            return card_id
+    raise ValueError(f"card enrollment unexpected reply of {len(data)} bytes")
+
+
+def _dates(validity: Validity) -> bytes:
+    """Return `[start 5B][end 5B]` for a validity; cards have no single-use form."""
+    if isinstance(validity, SingleUse):
+        raise ValueError("a card cannot be single-use")  # noqa: TRY004 -- ValueError is the contract for input the lock cannot take
+    permanent = START_DATE_SENTINEL + END_DATE_SENTINEL
+    if isinstance(validity, Permanent) or validity.start is None or validity.end is None:
+        return permanent
+    return encode_date5(validity.start) + encode_date5(validity.end)
+
+
+def check_card_validity(validity: Validity) -> None:
+    """Raise `ValueError` unless a card can have this validity, without connecting."""
+    _dates(validity)
+
+
+def payload_card_add(card_id: bytes, validity: Validity) -> bytes:
+    """Build the CMD 0x05 sub-op 0x02 payload that adds a card by its id: `[02][id][start][end]`.
+
+    Not captured (the app does not add by number); confirmed on an
+    SN484_PV53 lock for a permanent card with a 4-byte id. `Permanent` and an
+    unbounded `Weekly` send the dates the lock lists for a permanent card,
+    2000-01-01 00:00 and 2099-01-01 00:00;
+    the SDK's own default for a card without dates is about 2000-02-01 and
+    2099-12-01. A `Weekly` validity's windows are not part of this payload.
+    Raises `ValueError` for `SingleUse`.
+    """
+    return bytes([_ADD_OPERATION]) + card_id + _dates(validity)
+
+
+def payload_card_modify(card_id: bytes, validity: Validity) -> bytes:
+    """Build the CMD 0x05 sub-op 0x05 payload that sets a card's dates: `[05][id][start][end]`.
+
+    Captured from the official app for dated cards. For `Permanent` and an
+    unbounded `Weekly` it sends the dates the lock lists for a permanent
+    card; an SN484_PV53 lock then lists the card as permanent and accepts it.
+    Windows of a `Weekly` validity are not part of this payload. Raises
+    `ValueError` for `SingleUse`.
+    """
+    return bytes([_MODIFY_OPERATION]) + card_id + _dates(validity)
+
+
+def payload_card_delete(card_id: bytes) -> bytes:
+    """Build the CMD 0x05 sub-op 0x03 payload that deletes one card: `[03][id]`."""
+    return bytes([_DELETE_OPERATION]) + card_id
+
+
+def payload_card_clear() -> bytes:
+    """Build the CMD 0x05 sub-op 0x04 payload that deletes every card on the lock: `[04]`."""
+    return bytes([_CLEAR_OPERATION])
