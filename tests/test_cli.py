@@ -661,7 +661,9 @@ class TestBleCommands:
         assert "Monday    08:00-12:00" in result.output
         client.weekly_schedules.get.assert_awaited_once_with(Credential.card(0x0A1B2C3D))
 
-    def test_get_schedule_without_windows(self, cli_app, monkeypatch) -> None:
+    def test_get_schedule_without_windows_mentions_a_missing_credential(
+        self, cli_app, monkeypatch
+    ) -> None:
         cli_module, store = cli_app
         _write_keys(store)
         client = MagicMock()
@@ -672,6 +674,7 @@ class TestBleCommands:
         )
         assert result.exit_code == 0, result.output
         assert "no weekly windows" in result.output
+        assert "does not hold this credential" in result.output
         client.weekly_schedules.get.assert_awaited_once_with(
             Credential.fingerprint(bytes.fromhex("0001e2400003"))
         )
@@ -727,6 +730,11 @@ class TestBleCommands:
         cli_module, store = cli_app
         _write_keys(store)
         client = MagicMock()
+        client.get_cards = AsyncMock(
+            return_value=[
+                CardEntry(card_id=bytes.fromhex("0a1b2c3d"), start_date=None, end_date=None)
+            ]
+        )
         client.weekly_schedules.set = AsyncMock()
         self._patch_client(cli_module, monkeypatch, client)
         result = runner.invoke(
@@ -769,6 +777,46 @@ class TestBleCommands:
         _write_keys(store)
         arguments = ["set-schedule", "2", "--card", "00000001", "--window", window, "--yes"]
         assert message in _usage_error(cli_module.app, arguments)
+
+    def test_set_schedule_refuses_a_card_the_lock_does_not_hold(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_cards = AsyncMock(return_value=[])
+        client.weekly_schedules.set = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        arguments = ["set-schedule", "2", "--card", "0a1b2c3d", "--window", "mon=08:00-09:00", "-y"]
+        assert "does not hold card 0a1b2c3d" in _usage_error(cli_module.app, arguments)
+        client.weekly_schedules.set.assert_not_awaited()
+
+    def test_set_schedule_checks_fingerprints_for_a_fingerprint(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.get_fingerprints = AsyncMock(
+            return_value=[
+                FingerprintEntry(
+                    fingerprint_id=bytes.fromhex("0001e240"),
+                    slot=3,
+                    start_date=None,
+                    end_date=None,
+                )
+            ]
+        )
+        client.weekly_schedules.set = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        arguments = [
+            "set-schedule",
+            "2",
+            "--fingerprint",
+            "0001e2400003",
+            "--window",
+            "mon=08:00-09:00",
+            "-y",
+        ]
+        result = runner.invoke(cli_module.app, arguments)
+        assert result.exit_code == 0, result.output
+        client.weekly_schedules.set.assert_awaited_once()
 
     def test_set_schedule_aborts_without_confirmation(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app

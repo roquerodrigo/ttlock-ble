@@ -20,6 +20,7 @@ from ttlock_ble import (
     FingerprintEntry,
     LockFeature,
     ReplyTimeoutError,
+    StorageFullError,
     TTLockClient,
     TTLockError,
     UnsupportedFeatureError,
@@ -264,6 +265,28 @@ class TestSet:
         with pytest.raises(TTLockError, match="windows cleared, only 1 of 2 written back") as error:
             await client.weekly_schedules.set(_CARD, [_MONDAY, _THURSDAY])
         assert error.value.__cause__ is not None
+
+    async def test_no_free_memory_for_a_credential_without_windows(self, patched_connect) -> None:
+        client, fake = await _connected(patched_connect)
+        fake.reply_for_next = [
+            *_admin(client),
+            *_replies(client, _SCHEDULES, _NOTHING_TO_CLEAR, bytes.fromhex("700016")),
+        ]
+        with pytest.raises(CredentialNotFoundError, match="does not hold this credential") as error:
+            await client.weekly_schedules.set(_CARD, [_MONDAY])
+        assert error.value.error_code == 0x16
+
+    async def test_no_free_memory_after_a_real_clear_is_a_partial_write(
+        self, patched_connect
+    ) -> None:
+        client, fake = await _connected(patched_connect)
+        fake.reply_for_next = [
+            *_admin(client),
+            *_replies(client, _SCHEDULES, _CLEAR_DONE, bytes.fromhex("700016")),
+        ]
+        with pytest.raises(TTLockError, match="only 0 of 1 written back") as error:
+            await client.weekly_schedules.set(_CARD, [_MONDAY])
+        assert isinstance(error.value.__cause__, StorageFullError)
 
     async def test_wrong_echo(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)

@@ -75,6 +75,7 @@ def test_unsupported_feature_names_the_bit() -> None:
     [
         rejection_error("add_card", 0x16),
         rejection_error("add_card", None),
+        CredentialNotFoundError("set_weekly_schedule", 0x16, "the lock may not hold it"),
         UnsupportedFeatureError("add_card", LockFeature.IC),
     ],
 )
@@ -83,3 +84,11 @@ def test_errors_survive_pickling_and_copying(error: TTLockError) -> None:
         assert type(clone) is type(error)
         assert str(clone) == str(error)
         assert vars(clone) == vars(error)
+
+
+def test_detail_is_appended_to_the_message() -> None:
+    error = CredentialNotFoundError("set_weekly_schedule", 0x16, "the lock may not hold it")
+    assert str(error) == (
+        "Failed to set_weekly_schedule: lock rejected the command with error 0x16 "
+        "(LOCK_NO_FREE_MEMORY); the lock may not hold it"
+    )

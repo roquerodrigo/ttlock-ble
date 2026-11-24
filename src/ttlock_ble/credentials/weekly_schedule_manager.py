@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING
 from .. import commands as cmd
 from ..commands import weekly_schedule as schedule
 from ..constants import LockErrorCode, LockFeature, Weekday
-from ..exceptions import CredentialNotFoundError, ReplyTimeoutError, TTLockError
+from ..exceptions import (
+    CredentialNotFoundError,
+    ReplyTimeoutError,
+    StorageFullError,
+    TTLockError,
+)
 from ..models import Weekly, WeeklyWindow
 
 if TYPE_CHECKING:
@@ -97,8 +102,12 @@ class WeeklyScheduleManager:
     async def set(self, credential: Credential, windows: Iterable[WeeklyWindow]) -> None:
         """Replace a credential's windows; at most one per weekday, each inside one day.
 
-        An empty set is refused: use `clear` to lift the restriction. The
-        lock answers success even for a credential it does not hold.
+        An empty set is refused: use `clear` to lift the restriction.
+
+        For a credential the lock does not hold, an SN484 lock refuses the
+        first window with `LOCK_NO_FREE_MEMORY` (0x16) - its CLEAR having
+        found nothing to remove - and stores nothing. That case raises
+        `CredentialNotFoundError` instead of `StorageFullError`.
 
         The write is a CLEAR followed by one ADD per weekday, so a failure
         part-way leaves the credential with fewer windows than asked - with
@@ -119,18 +128,23 @@ class WeeklyScheduleManager:
             await self._channel.require(
                 "set_weekly_schedule", LockFeature.CYCLIC_IC_OR_FINGER_PRINT
             )
-            await self._clear(clear)
+            had_windows = await self._clear(clear)
             for written, add in enumerate(adds):
                 try:
                     data = await self._channel.command(
                         cmd.CMD_WEEKLY_SCHEDULE, add, "set_weekly_schedule"
                     )
                     _check(schedule.parse_weekly_schedule_add_reply, data, "set_weekly_schedule")
+                except StorageFullError as error:
+                    if written or had_windows:
+                        raise _partial_write(written, len(adds), error) from error
+                    raise CredentialNotFoundError(
+                        "set_weekly_schedule",
+                        error.error_code,
+                        "the lock most likely does not hold this credential",
+                    ) from None
                 except TTLockError as error:
-                    raise TTLockError(
-                        f"Failed to set_weekly_schedule: windows cleared, only {written} of "
-                        f"{len(adds)} written back: {error}"
-                    ) from error
+                    raise _partial_write(written, len(adds), error) from error
 
     async def clear(self, credential: Credential) -> None:
         """Remove every window, so the credential works whenever its dates allow.
@@ -147,7 +161,8 @@ class WeeklyScheduleManager:
             )
             await self._clear(payload)
 
-    async def _clear(self, payload: bytes) -> None:
+    async def _clear(self, payload: bytes) -> bool:
+        """Send CLEAR; report whether there were windows to remove."""
         try:
             data = await self._channel.command(
                 cmd.CMD_WEEKLY_SCHEDULE, payload, "clear_weekly_schedule"
@@ -156,8 +171,16 @@ class WeeklyScheduleManager:
             if error.error_code != LockErrorCode.RECORD_NOT_EXIST:
                 raise
             log.debug("weekly schedule already empty")
-            return
+            return False
         _check(schedule.parse_weekly_schedule_clear_reply, data, "clear_weekly_schedule")
+        return True
+
+
+def _partial_write(written: int, total: int, error: TTLockError) -> TTLockError:
+    return TTLockError(
+        f"Failed to set_weekly_schedule: windows cleared, only {written} of {total} "
+        f"written back: {error}"
+    )
 
 
 def _check(

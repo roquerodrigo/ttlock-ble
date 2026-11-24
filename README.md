@@ -175,7 +175,7 @@ optional `TTLOCK_KEY_STORE`, default `~/.ttlock/keys.json`; a `.env` file is hon
 | `ttlock get-passcodes <lock>` | Admin eKey | List the keypad passcodes the lock reports — **not exhaustive**: a passcode created by the official app and never yet used at the keypad does not appear |
 | `ttlock get-admin-passcode <lock>` / `set-admin-passcode <lock> <code>` | Admin eKey | Print / replace the keypad admin passcode |
 | `ttlock get-schedule <lock> --card <id>` / `--fingerprint <id>` | Admin eKey | Show a credential's weekly windows (ids as `get-cards` / `get-fingerprints` print them) |
-| `ttlock set-schedule <lock> --card <id> --window mon=08:00-12:00 …` | Admin eKey | Replace a credential's weekly windows (`--window` repeats; `workdays`, `weekend` and `daily` group days) |
+| `ttlock set-schedule <lock> --card <id> --window mon=08:00-12:00 …` | Admin eKey | Replace a credential's weekly windows, after checking the lock holds it (`--window` repeats; `workdays`, `weekend` and `daily` group days) |
 | `ttlock clear-schedule <lock> --card <id>` | Admin eKey | Remove a credential's weekly windows |
 | `ttlock get-auto-lock <lock>` | Admin eKey | Read the auto-lock delay in seconds |
 | `ttlock set-auto-lock <lock> <seconds>` | Admin eKey | Set the auto-lock delay in seconds (`0` disables it) |
