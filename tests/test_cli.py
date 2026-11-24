@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
@@ -45,6 +46,18 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 runner = CliRunner()
+
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _usage_error(app, arguments: list[str]) -> str:
+    """Run a command expected to fail and return its message without styling or wrapping."""
+    result = runner.invoke(app, arguments, env={"COLUMNS": "300"})
+    assert result.exit_code != 0
+    return _ANSI_ESCAPE.sub("", result.output)
+
+
 _GUEST_ARRIVES = dt.datetime(2026, 12, 24, 18)  # noqa: DTZ001 -- lock-local wall clock
 _GUEST_LEAVES = dt.datetime(2026, 12, 26, 12)  # noqa: DTZ001 -- lock-local wall clock
 
@@ -529,9 +542,7 @@ class TestBleCommands:
     def test_add_passcode_rejects_bad_validity(self, cli_app, options, message) -> None:
         cli_module, store = cli_app
         _write_keys(store)
-        result = runner.invoke(cli_module.app, ["add-passcode", "2", "1234", *options])
-        assert result.exit_code != 0
-        assert message in result.output
+        assert message in _usage_error(cli_module.app, ["add-passcode", "2", "1234", *options])
 
     def test_modify_passcode(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
@@ -565,9 +576,7 @@ class TestBleCommands:
     def test_modify_passcode_needs_a_change(self, cli_app) -> None:
         cli_module, store = cli_app
         _write_keys(store)
-        result = runner.invoke(cli_module.app, ["modify-passcode", "2", "1234"])
-        assert result.exit_code != 0
-        assert "--new-code" in result.output
+        assert "--new-code" in _usage_error(cli_module.app, ["modify-passcode", "2", "1234"])
 
     def test_get_admin_passcode(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
