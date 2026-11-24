@@ -168,6 +168,8 @@ class TestPasscodeManager:
             await client.passcodes.add(_CODE, Period(_START, _END))
         assert _CODE not in caplog.text
         assert _CODE.encode().hex() not in caplog.text
+        assert cmd.payload_passcode_create(_CODE, Period(_START, _END)).hex() not in caplog.text
+        assert "add_passcode accepted by the lock" in caplog.text
 
 
 class TestAdminPasscodeManager:

@@ -544,6 +544,43 @@ class TestBleCommands:
         _write_keys(store)
         assert message in _usage_error(cli_module.app, ["add-passcode", "2", "1234", *options])
 
+    @pytest.mark.parametrize(
+        ("arguments", "message"),
+        [
+            (["add-passcode", "2", "12a4"], "4-9 digits"),
+            (
+                [
+                    "add-passcode",
+                    "2",
+                    "1234",
+                    "--days",
+                    "mon,wed",
+                    "--from",
+                    "08:00",
+                    "--to",
+                    "09:00",
+                ],
+                "one weekday",
+            ),
+            (
+                ["add-passcode", "2", "1234", "--days", "mon", "--from", "08:00", "--to", "09:30"],
+                "whole hours",
+            ),
+            (["modify-passcode", "2", "1234", "--new-code", "12"], "4-9 digits"),
+            (["delete-passcode", "2", "12"], "4-9 digits"),
+            (["set-admin-passcode", "2", "12", "-y"], "4-9 digits"),
+        ],
+    )
+    def test_invalid_passcode_input_never_connects(
+        self, cli_app, monkeypatch, arguments, message
+    ) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        assert message in _usage_error(cli_module.app, arguments)
+        client.__aenter__.assert_not_called()
+
     def test_modify_passcode(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
         _write_keys(store)

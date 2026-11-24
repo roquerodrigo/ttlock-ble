@@ -5,34 +5,17 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING
 
-from ..ble.constants import DEFAULT_RECV_TIMEOUT
-
 if TYPE_CHECKING:
     import asyncio
     from collections.abc import AsyncIterator, Awaitable, Callable
-    from typing import Protocol
 
     from ..constants import LockFeature
+    from .command_sender import CommandSender
 
     ReplyHandler = Callable[[bytes], bool]
     QuerySender = Callable[[int, bytes, str], Awaitable[bytes]]
     FeatureCheck = Callable[[str, LockFeature], Awaitable[None]]
     Authorizer = Callable[[], Awaitable[None]]
-
-    class CommandSender(Protocol):
-        """`TTLockClient._credential_command`'s shape."""
-
-        def __call__(
-            self,
-            opcode: int,
-            payload: bytes,
-            action: str,
-            *,
-            on_reply: ReplyHandler | None = ...,
-            timeout: float = ...,
-        ) -> Awaitable[bytes]:
-            """Send one credential command and return the final reply's data."""
-            ...
 
 
 class AdminChannel:
@@ -74,9 +57,12 @@ class AdminChannel:
         action: str,
         *,
         on_reply: ReplyHandler | None = None,
-        timeout: float = DEFAULT_RECV_TIMEOUT,  # noqa: ASYNC109 -- forwarded to the transport, which owns the deadline
+        timeout: float | None = None,  # noqa: ASYNC109 -- forwarded to the transport, which owns the deadline
     ) -> bytes:
-        """Return the final reply's data of a credential command; refusals raise typed errors."""
+        """Return the final reply's data of a credential command; refusals raise typed errors.
+
+        `timeout` overrides the client's reply deadline for this command.
+        """
         return await self._send(opcode, payload, action, on_reply=on_reply, timeout=timeout)
 
     async def query(self, opcode: int, payload: bytes, action: str) -> bytes:

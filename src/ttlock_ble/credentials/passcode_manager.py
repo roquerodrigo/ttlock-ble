@@ -14,7 +14,9 @@ if TYPE_CHECKING:
     from ..models import PasscodeEntry, Period, SingleUse, Validity
     from .admin_channel import AdminChannel
 
-log: logging.Logger = logging.getLogger("ttlock_ble.credentials")
+# Logged under `ttlock_ble.client`, where these messages lived before the
+# managers existed, so users' log-level filters keep matching them.
+log: logging.Logger = logging.getLogger("ttlock_ble.client")
 
 # TTLock firmware holds at most 150 passcodes; only a runaway cursor gets here.
 _MAX_PASSCODE_ENTRIES = 300
@@ -79,7 +81,9 @@ class PasscodeManager:
         A `Weekly` code repeats one window on one weekday, Monday to
         Friday, the weekend or every day, for whole hours and with no date
         range, and needs `CYCLIC_PASSCODE_CAN_RECOVERY`; any other schedule
-        raises `ValueError` before connecting.
+        raises `ValueError` before connecting. Because a `WeeklyWindow`
+        stays inside one day, such a window cannot run to midnight or past
+        it, although the lock can store one that does.
 
         Raises `CredentialAlreadyExistsError` if the lock already holds
         `code`, and `StorageFullError` when it has no room left.
