@@ -20,7 +20,9 @@ class Weekly:
     The lock keeps one window per weekday, so each weekday appears at most
     once; days without a window deny access. Leaving both bounds out
     repeats the windows indefinitely, which is the only form a weekly
-    passcode can take: the lock stores no date range for it.
+    passcode can take: the lock stores no date range for it. Cards and
+    fingerprints keep their date range apart from their windows, which is
+    what the bounds are for.
     """
 
     windows: tuple[WeeklyWindow, ...]

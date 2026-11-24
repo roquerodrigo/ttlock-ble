@@ -1,4 +1,8 @@
-"""Validity: when a credential is accepted, shared by passcodes, cards and fingerprints."""
+"""Validity: when a credential is accepted.
+
+Passcodes take every form today (`PasscodeManager.add`); card and
+fingerprint management will take the same values.
+"""
 
 from __future__ import annotations
 

@@ -17,6 +17,7 @@ from tests.test_client_ble import (
     _status_plain,
 )
 from ttlock_ble import (
+    CardEntry,
     CredentialAlreadyExistsError,
     CredentialNotFoundError,
     FingerprintEntry,
@@ -97,6 +98,12 @@ class TestCredentialCommand:
         fake.reply_for_next = [_frames(client, _card_failure(0x24), _card_reply(0x64, 0x04))]
         data = await client._credential_command(cmd.CMD_MANAGE_IC_CARD, b"\x04", "clear_cards")
         assert data == bytes([0x64, 0x04])
+
+    async def test_endless_acknowledgements_give_up(self, patched_connect) -> None:
+        client, fake = await _connected(patched_connect)
+        fake.reply_for_next = [_frames(client, *[_card_failure(0x24)] * 6)]
+        with pytest.raises(TTLockError, match="kept acknowledging without a result"):
+            await client._credential_command(cmd.CMD_MANAGE_IC_CARD, b"\x04", "clear_cards")
 
     async def test_refusal_raises_the_mapped_error(self, patched_connect) -> None:
         client, fake = await _connected(patched_connect)
@@ -248,3 +255,14 @@ def test_fingerprint_identifier_joins_id_and_slot() -> None:
         end_date=None,
     )
     assert entry.identifier == bytes.fromhex("0001e2400102")
+
+
+def test_listed_entries_keep_their_ids_out_of_repr() -> None:
+    card = CardEntry(card_id=_CARD_ID, start_date=None, end_date=None)
+    finger = FingerprintEntry(
+        fingerprint_id=bytes.fromhex("0001e240"), slot=0x0102, start_date=None, end_date=None
+    )
+    assert _CARD_ID.hex() not in repr(card)
+    assert str(_CARD_ID) not in repr(card)
+    assert "0001e240" not in repr(finger)
+    assert "slot" not in repr(finger)

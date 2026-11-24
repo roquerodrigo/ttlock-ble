@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import copy
+import pickle
+
 import pytest
 
 from ttlock_ble import (
@@ -65,3 +68,18 @@ def test_unsupported_feature_names_the_bit() -> None:
     assert isinstance(error, TTLockError)
     assert error.feature is LockFeature.MODIFY_PASSCODE_FUNCTION
     assert str(error) == "Failed to modify_passcode: lock does not support MODIFY_PASSCODE_FUNCTION"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        rejection_error("add_card", 0x16),
+        rejection_error("add_card", None),
+        UnsupportedFeatureError("add_card", LockFeature.IC),
+    ],
+)
+def test_errors_survive_pickling_and_copying(error: TTLockError) -> None:
+    for clone in (pickle.loads(pickle.dumps(error)), copy.copy(error)):  # noqa: S301 -- round trip of our own object
+        assert type(clone) is type(error)
+        assert str(clone) == str(error)
+        assert vars(clone) == vars(error)
