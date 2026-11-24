@@ -19,12 +19,18 @@ Public API:
     CardEntry         — one enrolled IC card/tag (see get_cards's caveat)
     PasscodeEntry     — one keypad passcode (see get_passcodes's scope caveat)
     CyclicSchedule    — the day-of-week/time-window rule behind a CIRCLE passcode
+    Validity          — when a credential is accepted: Permanent, Period, SingleUse or Weekly
+    WeeklyWindow      — the hours a Weekly credential works on one weekday
     TTLockError       — raised by `TTLockClient` on BLE / protocol failure
+    LockRejectedError — the lock refused a command; `error_code` holds its reason
+    CredentialAlreadyExistsError, CredentialNotFoundError, StorageFullError
+                      — the refusals a credential command can map to
+    UnsupportedFeatureError — the lock's feature mask lacks what a command needs
     CloudError        — raised by `TTLockCloud` on a non-success HTTP response
 
 IntEnums:
-    AutoLockOperate, KeyboardPwdType, LockFeature, LockState, LockVolume, LogOperate,
-    PwdOperateType
+    AutoLockOperate, KeyboardPwdType, LockErrorCode, LockFeature, LockState, LockVolume,
+    LogOperate, PwdOperateType, Weekday
 """
 
 from __future__ import annotations
@@ -34,13 +40,23 @@ from .cloud import TTLockCloud
 from .constants import (
     AutoLockOperate,
     KeyboardPwdType,
+    LockErrorCode,
     LockFeature,
     LockState,
     LockVolume,
     LogOperate,
     PwdOperateType,
+    Weekday,
 )
-from .exceptions import CloudError, TTLockError
+from .exceptions import (
+    CloudError,
+    CredentialAlreadyExistsError,
+    CredentialNotFoundError,
+    LockRejectedError,
+    StorageFullError,
+    TTLockError,
+    UnsupportedFeatureError,
+)
 from .models import (
     CLOUD_APPS,
     AutoLockLimits,
@@ -57,8 +73,14 @@ from .models import (
     LockVersion,
     LogEntry,
     PasscodeEntry,
+    Period,
+    Permanent,
+    SingleUse,
     SiteInfo,
+    Validity,
     VirtualKey,
+    Weekly,
+    WeeklyWindow,
 )
 
 __all__ = [
@@ -68,6 +90,8 @@ __all__ = [
     "CardEntry",
     "CloudApp",
     "CloudError",
+    "CredentialAlreadyExistsError",
+    "CredentialNotFoundError",
     "CyclicSchedule",
     "DeviceFeatures",
     "DeviceInfo",
@@ -75,8 +99,10 @@ __all__ = [
     "FingerprintEntry",
     "KeyboardPwdType",
     "LockAdvertisement",
+    "LockErrorCode",
     "LockEvent",
     "LockFeature",
+    "LockRejectedError",
     "LockSound",
     "LockState",
     "LockVersion",
@@ -84,10 +110,19 @@ __all__ = [
     "LogEntry",
     "LogOperate",
     "PasscodeEntry",
+    "Period",
+    "Permanent",
     "PwdOperateType",
+    "SingleUse",
     "SiteInfo",
+    "StorageFullError",
     "TTLockClient",
     "TTLockCloud",
     "TTLockError",
+    "UnsupportedFeatureError",
+    "Validity",
     "VirtualKey",
+    "Weekday",
+    "Weekly",
+    "WeeklyWindow",
 ]

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     DisconnectedCallback = Callable[[BleakClient], None]
     PushFrameHandler = Callable[[Frame], None]
     ResponsePredicate = Callable[[Frame, int], bool]
+    FinalReplyPredicate = Callable[[Frame], bool]
 
 # The BLE layer keeps logging under `ttlock_ble.client`: the logger name is
 # what downstream users scope log levels with, and splitting the module out
@@ -138,7 +139,13 @@ class BleTransport:
         finally:
             self._client = None
 
-    async def exchange(self, frame: Frame, *, timeout: float = DEFAULT_RECV_TIMEOUT) -> Frame:  # noqa: ASYNC109 -- the deadline is the whole point of this helper
+    async def exchange(
+        self,
+        frame: Frame,
+        *,
+        timeout: float = DEFAULT_RECV_TIMEOUT,  # noqa: ASYNC109 -- the deadline is the whole point of this helper
+        until: FinalReplyPredicate | None = None,
+    ) -> Frame:
         """Send `frame` and return the lock's reply to *that* command.
 
         The lock pushes unsolicited frames on the same characteristic,
@@ -153,6 +160,13 @@ class BleTransport:
         Frames `is_response` rejects are therefore routed to the push
         handler, where they belong, and the wait continues on the
         original deadline rather than restarting.
+
+        Some commands answer more than once - card and fingerprint
+        enrollment report each step, and a lock may acknowledge with
+        "command received" before the real reply. `until` sees every
+        reply and returns True for the final one; every earlier reply
+        restarts the deadline, since the lock is proving it is still at
+        work. Without `until`, the first reply is final.
         """
         # Inbox-vs-push routing in `_on_notify` keys off this flag, so
         # increment around the entire send-then-receive window.
@@ -171,7 +185,10 @@ class BleTransport:
                 except TimeoutError as exc:
                     raise TTLockError(msg) from exc
                 if self._is_response(candidate, frame.command):
-                    return candidate
+                    if until is None or until(candidate):
+                        return candidate
+                    deadline = loop.time() + timeout
+                    continue
                 log.debug(
                     "Push frame arrived while awaiting 0x%02x; dispatching it",
                     frame.command,

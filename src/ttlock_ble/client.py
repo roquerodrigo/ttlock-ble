@@ -11,6 +11,7 @@ from . import commands as cmd
 from .ble import BleTransport, KeepAlive
 from .ble.constants import (
     DEFAULT_KEEP_ALIVE_SECONDS,
+    DEFAULT_RECV_TIMEOUT,
     DEVICE_INFO_FIRMWARE_REVISION_CHAR,
     DEVICE_INFO_HARDWARE_REVISION_CHAR,
     DEVICE_INFO_MANUFACTURER_CHAR,
@@ -18,9 +19,9 @@ from .ble.constants import (
     DEVICE_INFO_SERIAL_NUMBER_CHAR,
     DEVICE_INFO_SOFTWARE_REVISION_CHAR,
 )
-from .constants import KeyboardPwdType, LockState
+from .constants import KeyboardPwdType, LockErrorCode, LockState
 from .crypto import aes_decrypt, hex_key_to_bytes
-from .exceptions import TTLockError
+from .exceptions import TTLockError, UnsupportedFeatureError, rejection_error
 from .models import (
     AutoLockLimits,
     CardEntry,
@@ -42,10 +43,12 @@ if TYPE_CHECKING:
     from bleak import BleakClient
     from bleak.backends.device import BLEDevice
 
+    from .constants import LockFeature
     from .models import VirtualKey
 
     DisconnectedCallback = Callable[[BleakClient], None]
     EventListener = Callable[[LockEvent], None]
+    ReplyHandler = Callable[[bytes], bool]
 
 log: logging.Logger = logging.getLogger("ttlock_ble.client")
 
@@ -100,6 +103,7 @@ class TTLockClient:
         self._aes_key: bytes = hex_key_to_bytes(key.aesKeyStr)
         self._event_listeners: list[EventListener] = []
         self._command_lock = asyncio.Lock()
+        self._device_features: DeviceFeatures | None = None
         self._transport = BleTransport(
             address=key.lockMac,
             display_name=key.lockAlias or key.lockName or key.lockMac,
@@ -422,6 +426,10 @@ class TTLockClient:
         unlocks the door: if a shorter digit-prefix of it is still
         active as its own passcode, the keypad may keep accepting it -
         see `add_passcode`'s prefix-matching caveat.
+
+        Deleting a code the lock does not hold is not guaranteed to raise
+        `CredentialNotFoundError`: an SN534 lock on firmware 6.5.20
+        answered SUCCESS, so check `get_passcodes` when absence matters.
         """
         async with self._command_lock:
             await self._keyboard_password_exchange(
@@ -745,20 +753,84 @@ class TTLockClient:
         CHECK_ADMIN before it; whether the firmware insists on that for a
         read is unconfirmed. The response layout follows the SDK's parser
         rather than a hardware capture - see `commands.device_feature`.
+
+        The result is kept for the client's lifetime, and the credential
+        commands check it before sending anything the lock does not
+        advertise.
         """
         async with self._command_lock:
             await self._admin_handshake()
-            resp = await self._transport.exchange(
-                self._frame(cmd.CMD_SEARCH_DEVICE_FEATURE, cmd.payload_search_device_feature())
-            )
-            plain = self._decrypt_response(resp, "get_device_features")
-            log.debug("device feature response plaintext: %s", plain.hex())
-            try:
-                features = cmd.parse_device_feature_response(plain)
-            except (RuntimeError, ValueError) as error:
-                raise TTLockError(f"Failed to get_device_features: {error}") from error
+            return await self._read_device_features()
+
+    async def _read_device_features(self) -> DeviceFeatures:
+        """Send CMD 0x01 inside an admin session and remember the answer."""
+        resp = await self._transport.exchange(
+            self._frame(cmd.CMD_SEARCH_DEVICE_FEATURE, cmd.payload_search_device_feature())
+        )
+        plain = self._decrypt_response(resp, "get_device_features")
+        log.debug("device feature response plaintext: %s", plain.hex())
+        try:
+            features = cmd.parse_device_feature_response(plain)
+        except (RuntimeError, ValueError) as error:
+            raise TTLockError(f"Failed to get_device_features: {error}") from error
         log.info("device features: %s (battery %d%%)", features.feature_value, features.battery)
+        self._device_features = features
         return features
+
+    async def _require_feature(self, action: str, feature: LockFeature) -> None:
+        """Raise `UnsupportedFeatureError` unless the lock's own mask advertises `feature`.
+
+        Runs inside an admin session, since reading the mask needs one;
+        only the first check on a client costs a round trip.
+        """
+        features = self._device_features or await self._read_device_features()
+        if not features.supports(feature):
+            raise UnsupportedFeatureError(action, feature)
+
+    async def _credential_command(
+        self,
+        opcode: int,
+        payload: bytes,
+        action: str,
+        *,
+        on_reply: ReplyHandler | None = None,
+        timeout: float = DEFAULT_RECV_TIMEOUT,  # noqa: ASYNC109 -- forwarded to the transport, which owns the deadline
+    ) -> bytes:
+        """Send one credential command inside an admin session and return the final reply's data.
+
+        A refusal raises the matching `LockRejectedError` subclass. A
+        "command received" acknowledgement is not a refusal: the lock
+        sends the real reply after it, so the wait goes on. `on_reply`
+        receives the data of every successful reply, for commands that
+        report progress, and returns True once the final one arrives;
+        without it the first successful reply is final. Each reply
+        restarts `timeout`.
+
+        Reply data is never logged: it carries card numbers and
+        fingerprint ids.
+        """
+        final_data = b""
+
+        def is_final(candidate: Frame) -> bool:
+            nonlocal final_data
+            plain = self._decrypt_response(candidate, action)
+            _echo, status, data = self._parse_response_envelope(plain, action)
+            if status != cmd.RESPONSE_SUCCESS:
+                error_code = data[0] if data else None
+                if error_code == LockErrorCode.COMMAND_RECEIVED:
+                    log.debug("%s acknowledged by the lock; waiting for the result", action)
+                    return False
+                raise rejection_error(action, error_code)
+            if on_reply is not None and not on_reply(data):
+                return False
+            final_data = data
+            return True
+
+        await self._transport.exchange(
+            self._frame(opcode, payload), timeout=timeout, until=is_final
+        )
+        log.info("%s accepted by the lock", action)
+        return final_data
 
     async def get_device_info(self) -> DeviceInfo:
         """Read the standard BLE Device Information Service (0x180A), if the lock exposes it.
@@ -1043,11 +1115,7 @@ class TTLockClient:
 
     async def _keyboard_password_exchange(self, payload: bytes, label: str) -> None:
         await self._admin_handshake()
-        resp = await self._transport.exchange(
-            self._frame(cmd.CMD_MANAGE_KEYBOARD_PASSWORD, payload)
-        )
-        plain = self._decrypt_response(resp, label)
-        self._require_success(plain, label)
+        await self._credential_command(cmd.CMD_MANAGE_KEYBOARD_PASSWORD, payload, label)
 
     async def _control_lock(self, opcode: int, ps: int, label: str) -> None:
         resp = await self._transport.exchange(
