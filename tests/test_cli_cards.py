@@ -29,6 +29,7 @@ from ttlock_ble.credentials.card_manager import ENROLL_SAFETY_WINDOW
 
 runner = CliRunner()
 _NUMBER = 0x55667788
+_ID = "55667788"
 _START = dt.datetime(2026, 12, 24, 18)  # noqa: DTZ001 -- lock-local wall clock
 _END = dt.datetime(2026, 12, 26, 12)  # noqa: DTZ001 -- lock-local wall clock
 _WEEKDAYS_9_TO_5 = Weekly(
@@ -83,7 +84,7 @@ class TestEnrollCard:
         assert result.exit_code == 0, result.output
         assert "Present the card to the lock now" in result.output
         assert f"number {_NUMBER}" in result.output
-        assert "id 55667788" in result.output
+        assert "id 55667788 (number" in result.output
 
     def test_a_longer_wait(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
@@ -121,9 +122,9 @@ class TestEnrollCard:
         "arguments",
         [
             ["enroll-card", "2"],
-            ["add-card", "2", "5"],
-            ["modify-card", "2", "5", "--permanent"],
-            ["delete-card", "2", "5", "-y"],
+            ["add-card", "2", _ID],
+            ["modify-card", "2", _ID, "--permanent"],
+            ["delete-card", "2", _ID, "-y"],
             ["clear-cards", "2", "-y"],
         ],
     )
@@ -171,17 +172,18 @@ class TestAddCard:
         _write_keys(store)
         client = _client(cli_module, monkeypatch)
         client.cards.add = AsyncMock()
-        result = runner.invoke(cli_module.app, ["add-card", "2", str(_NUMBER), *options, "-v"])
+        result = runner.invoke(cli_module.app, ["add-card", "2", _ID, *options, "-v"])
         assert result.exit_code == 0, result.output
-        assert f"card {_NUMBER} added" in result.output
+        assert f"card {_ID} added" in result.output
         client.cards.add.assert_awaited_once_with(Credential.card(_NUMBER), validity)
 
     @pytest.mark.parametrize(
         "arguments",
         [
             ["add-card", "2", "12abc"],
-            ["add-card", "2", str(1 << 64)],
-            ["add-card", "2", "5", "--start", "2026-12-24T18:00"],
+            ["add-card", "2", "0102030405"],
+            ["add-card", "2", "1234567890"],
+            ["add-card", "2", _ID, "--start", "2026-12-24T18:00"],
         ],
     )
     def test_bad_input_never_connects(self, cli_app, monkeypatch, arguments) -> None:
@@ -201,9 +203,9 @@ class TestModifyCard:
         _write_keys(store)
         client = _client(cli_module, monkeypatch)
         client.cards.modify = AsyncMock()
-        result = runner.invoke(cli_module.app, ["modify-card", "2", str(_NUMBER), *options, "-v"])
+        result = runner.invoke(cli_module.app, ["modify-card", "2", _ID, *options, "-v"])
         assert result.exit_code == 0, result.output
-        assert f"card {_NUMBER} updated" in result.output
+        assert f"card {_ID} updated" in result.output
         client.cards.modify.assert_awaited_once_with(Credential.card(_NUMBER), validity)
 
     def test_permanent_must_be_asked_for(self, cli_app, monkeypatch) -> None:
@@ -211,7 +213,7 @@ class TestModifyCard:
         _write_keys(store)
         client = _client(cli_module, monkeypatch)
         client.cards.modify = AsyncMock()
-        result = runner.invoke(cli_module.app, ["modify-card", "2", str(_NUMBER), "--permanent"])
+        result = runner.invoke(cli_module.app, ["modify-card", "2", _ID, "--permanent"])
         assert result.exit_code == 0, result.output
         client.cards.modify.assert_awaited_once_with(Credential.card(_NUMBER), Permanent())
 
@@ -225,7 +227,7 @@ class TestModifyCard:
         _write_keys(store)
         client = _client(cli_module, monkeypatch)
         assert "give --permanent" in _usage_error(
-            cli_module.app, ["modify-card", "2", str(_NUMBER), *options]
+            cli_module.app, ["modify-card", "2", _ID, *options]
         )
         client.__aenter__.assert_not_called()
 
@@ -236,9 +238,9 @@ class TestDeleteCard:
         _write_keys(store)
         client = _client(cli_module, monkeypatch)
         client.cards.delete = AsyncMock()
-        result = runner.invoke(cli_module.app, ["delete-card", "2", str(_NUMBER)], input="y\n")
+        result = runner.invoke(cli_module.app, ["delete-card", "2", _ID], input="y\n")
         assert result.exit_code == 0, result.output
-        assert f"Remove card {_NUMBER}" in result.output
+        assert f"Remove card {_ID}" in result.output
         client.cards.delete.assert_awaited_once_with(Credential.card(_NUMBER))
 
     def test_aborts_without_confirmation(self, cli_app, monkeypatch) -> None:
@@ -246,7 +248,7 @@ class TestDeleteCard:
         _write_keys(store)
         client = _client(cli_module, monkeypatch)
         client.cards.delete = AsyncMock()
-        result = runner.invoke(cli_module.app, ["delete-card", "2", str(_NUMBER)], input="n\n")
+        result = runner.invoke(cli_module.app, ["delete-card", "2", _ID], input="n\n")
         assert result.exit_code != 0
         client.cards.delete.assert_not_awaited()
 
@@ -256,17 +258,18 @@ class TestDeleteCard:
         _write_keys(store)
         client = _client(cli_module, monkeypatch)
         client.cards.delete = AsyncMock()
-        result = runner.invoke(cli_module.app, ["delete-card", "2", str(_NUMBER), flag, "-v"])
+        result = runner.invoke(cli_module.app, ["delete-card", "2", _ID, flag, "-v"])
         assert result.exit_code == 0, result.output
         assert "Remove card" not in result.output
-        assert f"card {_NUMBER} removed" in result.output
+        assert f"card {_ID} removed" in result.output
         client.cards.delete.assert_awaited_once_with(Credential.card(_NUMBER))
 
     def test_a_bad_number_never_asks_or_connects(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
         _write_keys(store)
         client = _client(cli_module, monkeypatch)
-        assert "8 bytes" in _usage_error(cli_module.app, ["delete-card", "2", str(1 << 64), "-y"])
+        message = _usage_error(cli_module.app, ["delete-card", "2", "0102030405", "-y"])
+        assert "card id must be 4 or 8 bytes" in message
         client.__aenter__.assert_not_called()
 
 

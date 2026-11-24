@@ -17,6 +17,7 @@ EXPECTED_EXPORTS = frozenset(
         "AdminPasscodeManager",
         "AutoLockLimits",
         "AutoLockOperate",
+        "CardAlreadyEnrolledError",
         "CardEnrollmentStep",
         "CardEntry",
         "CardManager",

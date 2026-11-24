@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -10,13 +11,14 @@ from typing import TYPE_CHECKING
 from .. import commands as cmd
 from ..constants import CardEnrollmentStep, CredentialType, LockFeature
 from ..exceptions import (
+    CardAlreadyEnrolledError,
     CardPresentedLateError,
     EnrollmentTimeoutError,
     ReplyTimeoutError,
     TTLockError,
     UnsupportedFeatureError,
 )
-from ..models import Credential, Permanent, Weekly
+from ..models import Credential, Period, Permanent, Weekly
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -64,10 +66,21 @@ class CardManager:
     official app's captures and from hardware runs of this SDK: enrolling
     by tap (permanent, dated and weekly), adding by number, changing a
     card's validity, deleting one card, clearing all, and removing a card
-    presented after the enrollment timeout. Not tested: 8-byte card ids
-    (including 10-digit numbers above 4294967295), enrolling by tap a card
-    the lock already holds, other lock models, and whether a start date
-    already in the past is stored (the listing shows it as "not set").
+    presented after the enrollment timeout.
+
+    Presenting or adding a card the lock already holds resets it there:
+    adding it again replaces its dates (a card limited to ten days became
+    permanent), and tapping it in add mode is reported exactly like a new
+    enrollment while the lock makes its dates permanent and wipes its
+    weekly windows. The official app does not detect the second case - a
+    capture shows it reporting success while the card lost both. `add`
+    therefore refuses a held card and `enroll` restores one it meets, as
+    safety measures beyond the app's own behaviour; both read the cards
+    first, see their docstrings.
+
+    Not tested: 8-byte card ids (including 10-digit numbers above
+    4294967295), other lock models, and whether a start date already in
+    the past is stored (the listing shows it as "not set").
     """
 
     def __init__(self, channel: AdminChannel, weekly_schedules: WeeklyScheduleManager) -> None:
@@ -160,18 +173,36 @@ class CardManager:
         client may run between the steps. A cancelled call is not rolled
         back: list the cards afterwards.
 
+        Tapping a card the lock already holds is reported exactly like a new
+        enrollment, and the lock resets it: its dates become permanent and
+        its weekly windows are wiped (SN484_PV53). The official app does not
+        notice this - it reports success and the card loses its dates and
+        windows. So the cards, with their windows, are read before add mode
+        starts (`list`: a card without windows costs a short timeout and a
+        reconnect each, before the lock is asked for anything). A card found
+        in that list is never deleted, on any path: its previous dates and
+        windows are written back with `modify` and `CardAlreadyEnrolledError`
+        is raised, with `restored` telling whether that worked - when it did
+        not, the card may now be permanent and unrestricted. This restore is
+        a safety addition beyond what the app does. Only a card that was not
+        in the list is deleted, by a rollback or as a late card.
+
         Raises `StorageFullError` when the lock has no room left.
         """
         validity = validity or Permanent()
         cmd.check_card_validity(validity)
+        held = {entry.card_id: entry for entry in await self.list()}
         failure: TTLockError | None = None
         async with self._channel.session():
             await self._require_cards("enroll_card", validity)
             credential, late = await self._wait_for_card(on_progress, timeout)
-            if late:
+            previous = held.get(credential.identifier)
+            if previous is None and late:
                 raise await self._remove_late_card(credential, timeout)
-            if not isinstance(validity, Permanent):
+            if previous is None and not isinstance(validity, Permanent):
                 failure = await self._try(self._apply_dates(credential, validity, "enroll_card"))
+        if previous is not None:
+            raise await self._restore(credential, previous, late=late)
         if failure is None and isinstance(validity, Weekly):
             failure = await self._try(self._weekly_schedules.set(credential, validity.windows))
         if failure is not None:
@@ -228,6 +259,30 @@ class CardManager:
         log.info("card enrolled")
         return Credential(CredentialType.CARD, card_id), late
 
+    async def _restore(
+        self, credential: Credential, previous: CardEntry, *, late: bool
+    ) -> CardAlreadyEnrolledError:
+        """Write a re-enrolled card's previous dates and windows back and describe the outcome."""
+        when = "after the timeout " if late else ""
+        try:
+            await self.modify(credential, _validity_of(previous))
+        except (TTLockError, ValueError) as error:
+            log.warning("re-enrolled card could not be restored")
+            return CardAlreadyEnrolledError(
+                "enroll_card",
+                f"Failed to enroll_card: a card the lock already held was presented {when}and "
+                f"the lock reset it, and restoring its previous validity failed ({error}); it may "
+                "now be permanent and unrestricted - list the cards and fix it with modify",
+                restored=False,
+            )
+        log.warning("re-enrolled card restored")
+        return CardAlreadyEnrolledError(
+            "enroll_card",
+            f"Failed to enroll_card: a card the lock already held was presented {when}and the "
+            "lock reset it; its previous dates and weekly windows were restored",
+            restored=True,
+        )
+
     async def _remove_late_card(self, credential: Credential, timeout: float) -> TTLockError:  # noqa: ASYNC109 -- only reported
         """Delete a card enrolled after the timeout, in the caller's session, and describe it."""
         try:
@@ -262,9 +317,13 @@ class CardManager:
         `Permanent` sends the dates the lock lists for a permanent card
         (the SDK's own default is about 2000-02-01 to 2099-12-01).
 
-        Adding a card the lock already holds is answered with success and
-        leaves a single entry, so this cannot tell a new card from an
-        existing one; `list` can.
+        The lock answers adding a card it already holds with success and
+        replaces that card's dates (SN484_PV53: a card limited to ten days
+        became permanent). So the cards are read first, without windows,
+        and a card already held raises `CardAlreadyEnrolledError` - a
+        `CredentialAlreadyExistsError` - pointing to `modify`, with nothing
+        sent. Only a card that was absent can be deleted by the rollback
+        below.
 
         A `Weekly` validity writes its windows after the card is added; if
         that fails the card is deleted again, as in `enroll`.
@@ -275,6 +334,14 @@ class CardManager:
         validity = validity or Permanent()
         identifier = _card_id(card)
         payload = cmd.payload_card_add(identifier, validity)
+        if any(
+            entry.card_id == identifier for entry in await self.list(include_weekly_windows=False)
+        ):
+            raise CardAlreadyEnrolledError(
+                "add_card",
+                "Failed to add_card: the lock already holds this card; adding it again would "
+                "replace its dates - use modify to change its validity",
+            )
         async with self._channel.session():
             await self._require_cards("add_card", validity)
             await self._channel.command(cmd.CMD_MANAGE_IC_CARD, payload, "add_card")
@@ -396,3 +463,13 @@ def _card_id(card: Credential) -> bytes:
     if card.credential_type != CredentialType.CARD:
         raise ValueError("expected a card credential")
     return card.identifier
+
+
+def _validity_of(entry: CardEntry) -> Validity:
+    """Return the validity a listed card has, from its dates and weekly windows."""
+    windows = entry.weekly_windows or ()
+    if entry.start_date is None and entry.end_date is None:
+        return Weekly(windows) if windows else Permanent()
+    start = entry.start_date or dt.datetime(2000, 1, 1)  # noqa: DTZ001 -- lock RTC is naive
+    end = entry.end_date or dt.datetime(2099, 1, 1)  # noqa: DTZ001 -- lock RTC is naive
+    return Weekly(windows, start, end) if windows else Period(start, end)

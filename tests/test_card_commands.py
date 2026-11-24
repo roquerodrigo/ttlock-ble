@@ -163,3 +163,24 @@ class TestSdkOnlyPayloads:
             build(FIRST_CARD, single)
         with pytest.raises(ValueError, match="single-use"):
             cmd.check_card_validity(single)
+
+
+class TestAppFlowsOnHeldAndRecurringCards:
+    def test_the_recurring_enrollment_validity_and_days(self) -> None:
+        sent = _sent("enroll by tap, recurring (all seven days)")
+        validity = Period(dt.datetime(2026, 11, 24, 0, 0), dt.datetime(2027, 11, 24, 23, 59))  # noqa: DTZ001
+        assert sent[1] == cmd.payload_card_modify(SECOND_CARD, validity)
+        assert all(data[0] == 0x02 for data in sent[2:])
+        assert len(sent) == 9
+
+    def test_the_recurring_enrollment_is_reported_like_any_other(self) -> None:
+        received = _received("enroll by tap, recurring (all seven days)")
+        assert cmd.parse_card_enrollment_reply(received[0]) is None
+        assert cmd.parse_card_enrollment_reply(received[1]) == SECOND_CARD
+
+    def test_a_card_already_held_is_reported_exactly_like_a_new_one(self) -> None:
+        held = "enroll by tap of a card the lock already holds (app, permanent)"
+        new = "enroll by tap, second card, permanent"
+        assert _sent(held) == _sent(new) == [bytes.fromhex("0201")]
+        assert cmd.parse_card_enrollment_reply(_received(held)[1]) == SECOND_CARD
+        assert _received(held)[1][1:] == _received(new)[1][1:]
