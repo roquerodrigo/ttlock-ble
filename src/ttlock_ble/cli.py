@@ -157,7 +157,10 @@ def _describe(credential: Credential) -> str:
 
 def _echo_windows(windows: tuple[WeeklyWindow, ...]) -> None:
     if not windows:
-        typer.echo("no weekly windows: works whenever its dates allow")
+        typer.echo(
+            "no weekly windows: works whenever its dates allow, "
+            "or the lock does not hold this credential"
+        )
     for window in windows:
         typer.echo(f"  {window.weekday.name.title():<9} {window.start:%H:%M}-{window.end:%H:%M}")
 
@@ -832,6 +835,13 @@ async def _run_set_schedule(
     key: VirtualKey, credential: Credential, windows: tuple[WeeklyWindow, ...]
 ) -> None:
     async with TTLockClient(key) as c:
+        listed: list[CardEntry] | list[FingerprintEntry] = (
+            await c.get_cards()
+            if credential.credential_type == CredentialType.CARD
+            else await c.get_fingerprints()
+        )
+        if credential not in {Credential.of(entry) for entry in listed}:
+            raise typer.BadParameter(f"the lock does not hold {_describe(credential)}")
         await c.weekly_schedules.set(credential, windows)
 
 
