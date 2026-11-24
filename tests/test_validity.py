@@ -48,25 +48,37 @@ def test_aware_and_naive_bounds_compare_by_wall_clock() -> None:
 
 def test_weekly_validity_keeps_windows_as_a_tuple() -> None:
     evening = WeeklyWindow(Weekday.FRIDAY, dt.time(18, 0), dt.time(23, 59))
-    validity = Weekly(_START, _END, [_MORNING, evening])  # type: ignore[arg-type]
+    validity = Weekly([_MORNING, evening], _START, _END)  # type: ignore[arg-type]
     assert validity.windows == (_MORNING, evening)
+    assert validity.is_bounded
     assert hash(validity)
+
+
+def test_weekly_validity_may_repeat_indefinitely() -> None:
+    validity = Weekly((_MORNING,))
+    assert (validity.start, validity.end) == (None, None)
+    assert not validity.is_bounded
+
+
+def test_weekly_validity_needs_both_bounds_or_neither() -> None:
+    with pytest.raises(ValueError, match="both a start and an end, or neither"):
+        Weekly((_MORNING,), _START)
 
 
 def test_weekly_validity_needs_a_window() -> None:
     with pytest.raises(ValueError, match="at least one window"):
-        Weekly(_START, _END, ())
+        Weekly((), _START, _END)
 
 
 def test_weekly_validity_allows_one_window_per_weekday() -> None:
     afternoon = WeeklyWindow(Weekday.MONDAY, dt.time(13, 0), dt.time(17, 0))
     with pytest.raises(ValueError, match="one window per weekday"):
-        Weekly(_START, _END, (_MORNING, afternoon))
+        Weekly((_MORNING, afternoon), _START, _END)
 
 
 def test_weekly_validity_checks_its_date_range() -> None:
     with pytest.raises(ValueError, match="weekly validity must start before it ends"):
-        Weekly(_END, _START, (_MORNING,))
+        Weekly((_MORNING,), _END, _START)
 
 
 def test_window_must_start_before_it_ends() -> None:
