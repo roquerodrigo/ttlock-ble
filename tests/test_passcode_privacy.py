@@ -22,6 +22,12 @@ def _response(*, pin=_PIN, trailer=b"\x00\x01\x01\x00\x00"):
     return b"\x07\x01\x00\x00\x00\x00" + bytes([len(body)]) + body
 
 
+def _client_without_handshake(key):
+    client = TTLockClient(key)
+    client.passcodes._channel._authorize = AsyncMock()
+    return client
+
+
 def _assert_private(text, response):
     for secret in (_PIN, _OLD_PIN):
         assert secret.decode() not in text
@@ -31,9 +37,8 @@ def _assert_private(text, response):
 
 async def test_successful_read_retains_values_without_logging_credentials(caplog):
     key = make_virtual_key()
-    client = TTLockClient(key)
+    client = _client_without_handshake(key)
     response = _response()
-    client._admin_handshake = AsyncMock()
     client._transport.exchange = AsyncMock(
         return_value=_resp_frame(key, cmd.CMD_GET_PASSCODES, response)
     )
@@ -64,8 +69,7 @@ async def test_parser_and_public_error_tracebacks_redact_credentials(response, e
     _assert_private("".join(traceback.format_exception(parsed.value)), response)
 
     key = make_virtual_key()
-    client = TTLockClient(key)
-    client._admin_handshake = AsyncMock()
+    client = _client_without_handshake(key)
     client._transport.exchange = AsyncMock(
         return_value=_resp_frame(key, cmd.CMD_GET_PASSCODES, response)
     )

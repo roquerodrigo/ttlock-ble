@@ -20,13 +20,12 @@ class PasscodeEntry:
     See `TTLockClient.get_passcodes` for the critical scope limitation -
     this is not an exhaustive list of every passcode active on the lock.
 
-    `start_date`/`end_date` are only populated for `PERMANENT`/`PERIOD`
-    passcodes: `end_date` stays `None` for a permanent code (whose
-    `start_date` is itself always the sentinel in every example seen),
-    and both stay `None` for a `CIRCLE` code, which carries its own
-    `cyclic_schedule` instead. `cyclic_schedule` is only set for `CIRCLE`
-    passcodes - see `CyclicSchedule` for what that model does and
-    doesn't cover.
+    `start_date`/`end_date` are populated for `PERMANENT`, `PERIOD` and
+    `COUNT` (single-use) passcodes: `end_date` stays `None` for a permanent
+    code, and the lock reports every start as 2000-01-01 whatever was sent
+    when the code was created. Both stay `None` for a `CIRCLE` code, which
+    carries its own `cyclic_schedule` instead - see `CyclicSchedule` for
+    what that model does and doesn't cover.
 
     `passcode` is the wire's `new_pwd` field - the current value, and
     identical to the wire's `pwd` field unless the code was changed since

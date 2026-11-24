@@ -31,15 +31,22 @@ from ttlock_ble import (
     LockState,
     LockVolume,
     PasscodeEntry,
+    Period,
+    Permanent,
+    SingleUse,
+    Weekly,
+    WeeklyWindow,
 )
 from ttlock_ble._cloud_helpers import ERR_NEW_DEVICE_LOGIN
-from ttlock_ble.constants import KeyboardPwdType
+from ttlock_ble.constants import KeyboardPwdType, Weekday
 from ttlock_ble.exceptions import CloudError
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 runner = CliRunner()
+_GUEST_ARRIVES = dt.datetime(2026, 12, 24, 18)  # noqa: DTZ001 -- lock-local wall clock
+_GUEST_LEAVES = dt.datetime(2026, 12, 26, 12)  # noqa: DTZ001 -- lock-local wall clock
 
 
 @pytest.fixture
@@ -464,23 +471,146 @@ class TestBleCommands:
         cli_module, store = cli_app
         _write_keys(store)
         client = MagicMock()
-        client.add_passcode = AsyncMock()
+        client.passcodes.add = AsyncMock()
         self._patch_client(cli_module, monkeypatch, client)
         result = runner.invoke(cli_module.app, ["add-passcode", "2", "1234", "-v"])
         assert result.exit_code == 0, result.output
         assert "1234 added" in result.output
-        client.add_passcode.assert_awaited_once_with("1234")
+        client.passcodes.add.assert_awaited_once_with("1234", Permanent())
+
+    @pytest.mark.parametrize(
+        ("options", "validity"),
+        [
+            (
+                ["--start", "2026-12-24T18:00", "--end", "2026-12-26T12:00"],
+                Period(_GUEST_ARRIVES, _GUEST_LEAVES),
+            ),
+            (
+                ["--start", "2026-12-24T18:00", "--end", "2026-12-26T12:00", "--single-use"],
+                SingleUse(_GUEST_ARRIVES, _GUEST_LEAVES),
+            ),
+            (
+                ["--days", "weekend", "--from", "09:00", "--to", "12:00"],
+                Weekly(
+                    (
+                        WeeklyWindow(Weekday.SATURDAY, dt.time(9), dt.time(12)),
+                        WeeklyWindow(Weekday.SUNDAY, dt.time(9), dt.time(12)),
+                    )
+                ),
+            ),
+            (
+                ["--days", "tue", "--from", "17:00", "--to", "19:00"],
+                Weekly((WeeklyWindow(Weekday.TUESDAY, dt.time(17), dt.time(19)),)),
+            ),
+        ],
+    )
+    def test_add_passcode_with_validity(self, cli_app, monkeypatch, options, validity) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.passcodes.add = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["add-passcode", "2", "1234", *options])
+        assert result.exit_code == 0, result.output
+        client.passcodes.add.assert_awaited_once_with("1234", validity)
+
+    @pytest.mark.parametrize(
+        ("options", "message"),
+        [
+            (["--start", "2026-12-24T18:00"], "go together"),
+            (["--single-use"], "needs --start and --end"),
+            (["--days", "weekend"], "needs --from and --to"),
+            (["--days", "someday", "--from", "09:00", "--to", "12:00"], "comma-separated"),
+            (["--days", "mon", "--from", "9h", "--to", "12:00"], "17:30"),
+            (["--start", "tomorrow", "--end", "2026-12-26T12:00"], "2026-12-24T18:00"),
+            (["--start", "2026-12-26T12:00", "--end", "2026-12-24T18:00"], "start before"),
+        ],
+    )
+    def test_add_passcode_rejects_bad_validity(self, cli_app, options, message) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        result = runner.invoke(cli_module.app, ["add-passcode", "2", "1234", *options])
+        assert result.exit_code != 0
+        assert message in result.output
+
+    def test_modify_passcode(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.passcodes.modify = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(
+            cli_module.app,
+            [
+                "modify-passcode",
+                "2",
+                "1234",
+                "--new-code",
+                "5678",
+                "--start",
+                "2026-12-24T18:00",
+                "--end",
+                "2026-12-26T12:00",
+                "-v",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "5678 updated" in result.output
+        client.passcodes.modify.assert_awaited_once_with(
+            "1234",
+            new_code="5678",
+            validity=Period(_GUEST_ARRIVES, _GUEST_LEAVES),
+        )
+
+    def test_modify_passcode_needs_a_change(self, cli_app) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        result = runner.invoke(cli_module.app, ["modify-passcode", "2", "1234"])
+        assert result.exit_code != 0
+        assert "--new-code" in result.output
+
+    def test_get_admin_passcode(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.admin_passcode.get = AsyncMock(return_value="246810")
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["get-admin-passcode", "2", "-v"])
+        assert result.exit_code == 0, result.output
+        assert result.output.strip() == "246810"
+
+    def test_set_admin_passcode(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.admin_passcode.set = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(
+            cli_module.app, ["set-admin-passcode", "2", "246810", "-v"], input="y\n"
+        )
+        assert result.exit_code == 0, result.output
+        client.admin_passcode.set.assert_awaited_once_with("246810")
+
+    def test_set_admin_passcode_aborts_without_confirmation(self, cli_app, monkeypatch) -> None:
+        cli_module, store = cli_app
+        _write_keys(store)
+        client = MagicMock()
+        client.admin_passcode.set = AsyncMock()
+        self._patch_client(cli_module, monkeypatch, client)
+        result = runner.invoke(cli_module.app, ["set-admin-passcode", "2", "246810"], input="n\n")
+        assert result.exit_code != 0
+        client.admin_passcode.set.assert_not_awaited()
 
     def test_delete_passcode(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app
         _write_keys(store)
         client = MagicMock()
-        client.delete_passcode = AsyncMock()
+        client.passcodes.delete = AsyncMock()
         self._patch_client(cli_module, monkeypatch, client)
         result = runner.invoke(cli_module.app, ["delete-passcode", "2", "1234", "-v"])
         assert result.exit_code == 0, result.output
         assert "1234 removed" in result.output
-        client.delete_passcode.assert_awaited_once_with("1234")
+        client.passcodes.delete.assert_awaited_once_with("1234")
 
     def test_clear_passcodes(self, cli_app, monkeypatch) -> None:
         cli_module, store = cli_app

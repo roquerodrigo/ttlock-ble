@@ -120,6 +120,8 @@ ignore = [
 "src/ttlock_ble/cli.py" = [
     "FBT001",   # boolean-positional in typer commands is the framework idiom
     "FBT003",   # so is the boolean positional passed to typer.Option
+    "PLR0913",  # a typer command declares each of its options as a parameter
+    "PLR0917",  # and typer passes them positionally
 ]
 "src/ttlock_ble/ble/transport.py" = [
     "S101",     # asserts narrow Optional GATT handles for mypy after connect()

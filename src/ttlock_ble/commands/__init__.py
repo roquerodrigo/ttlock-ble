@@ -5,7 +5,8 @@ official Android SDK. We focus on `lockType=5` (V3), which covers virtually
 every current DLock-XP / TTLock smart-lock SKU.
 
 One submodule per command family — `session` for the handshake, `control`
-for the bolt, `clock`, `auto_lock`, `passcode`, `passcode_list`,
+for the bolt, `clock`, `auto_lock`, `passcode`, `passcode_cycle`,
+`passcode_list`, `admin_passcode`,
 `operate_log`, `lock_sound`, `card`, `fingerprint`, `device_feature` and
 `device_properties` for the rest — over the shared `opcodes`, `envelope` and
 `encoding` primitives.
@@ -13,6 +14,7 @@ for the bolt, `clock`, `auto_lock`, `passcode`, `passcode_list`,
 
 from __future__ import annotations
 
+from .admin_passcode import parse_admin_passcode, payload_set_admin_passcode
 from .auto_lock import (
     parse_auto_lock_limits_response,
     parse_auto_lock_response,
@@ -58,6 +60,7 @@ from .opcodes import (
     CMD_CHECK_ADMIN,
     CMD_CHECK_RANDOM,
     CMD_CHECK_USER_TIME,
+    CMD_GET_ADMIN_PASSCODE,
     CMD_GET_AES_KEY,
     CMD_GET_DEVICE_PROPERTIES,
     CMD_GET_LOCK_TIME,
@@ -71,13 +74,23 @@ from .opcodes import (
     CMD_QUERY_STATE,
     CMD_RESPONSE,
     CMD_SEARCH_DEVICE_FEATURE,
+    CMD_SET_ADMIN_PASSCODE,
     CMD_SET_LOCK_SOUND,
     CMD_SWITCH,
     CMD_TIME_CALIBRATE,
     CMD_UNLOCK,
 )
 from .operate_log import parse_operate_log_response, payload_operate_log_request
-from .passcode import payload_passcode_add, payload_passcode_clear, payload_passcode_delete
+from .passcode import (
+    check_passcode,
+    payload_passcode_add,
+    payload_passcode_clear,
+    payload_passcode_create,
+    payload_passcode_delete,
+    payload_passcode_modify,
+    payload_passcode_recover_weekly,
+)
+from .passcode_cycle import encode_passcode_cycle
 from .passcode_list import parse_passcode_list_response, payload_passcode_list
 from .session import (
     VENDOR,
@@ -98,6 +111,7 @@ __all__ = [
     "CMD_CHECK_ADMIN",
     "CMD_CHECK_RANDOM",
     "CMD_CHECK_USER_TIME",
+    "CMD_GET_ADMIN_PASSCODE",
     "CMD_GET_AES_KEY",
     "CMD_GET_DEVICE_PROPERTIES",
     "CMD_GET_LOCK_TIME",
@@ -111,6 +125,7 @@ __all__ = [
     "CMD_QUERY_STATE",
     "CMD_RESPONSE",
     "CMD_SEARCH_DEVICE_FEATURE",
+    "CMD_SET_ADMIN_PASSCODE",
     "CMD_SET_LOCK_SOUND",
     "CMD_SWITCH",
     "CMD_TIME_CALIBRATE",
@@ -122,6 +137,9 @@ __all__ = [
     "START_DATE_SENTINEL",
     "UNLOCKED",
     "VENDOR",
+    "check_passcode",
+    "encode_passcode_cycle",
+    "parse_admin_passcode",
     "parse_auto_lock_limits_response",
     "parse_auto_lock_response",
     "parse_card_list_response",
@@ -153,10 +171,14 @@ __all__ = [
     "payload_operate_log_request",
     "payload_passcode_add",
     "payload_passcode_clear",
+    "payload_passcode_create",
     "payload_passcode_delete",
     "payload_passcode_list",
+    "payload_passcode_modify",
+    "payload_passcode_recover_weekly",
     "payload_query_state",
     "payload_search_device_feature",
+    "payload_set_admin_passcode",
     "payload_set_lock_sound",
     "payload_set_lock_volume",
     "payload_time_calibrate",

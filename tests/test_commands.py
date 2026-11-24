@@ -818,12 +818,7 @@ class TestPasscodeList:
         assert "no confirmed trailer layout" in caplog.text
 
     def test_pwd_type_with_no_confirmed_layout_is_skipped(self, caplog) -> None:
-        # KeyboardPwdType.COUNT (2) is a recognized enum member, but no
-        # trailer layout for it has ever been confirmed - must not guess,
-        # and must not hide the rest of the list behind it either.
-        item = _passcode_item(
-            pwd_type=int(KeyboardPwdType.COUNT), new_pwd=b"1234", pwd=b"1234", trailer=b""
-        )
+        item = _passcode_item(pwd_type=9, new_pwd=b"1234", pwd=b"1234", trailer=b"")
         with caplog.at_level("WARNING", logger="ttlock_ble.commands"):
             entry, next_seq = cmd.parse_passcode_list_response(
                 _passcode_response(next_sequence=3, item=item)
@@ -831,6 +826,22 @@ class TestPasscodeList:
         assert entry is None
         assert next_seq == 3
         assert "no confirmed trailer layout" in caplog.text
+
+    def test_single_use_entry_real_capture(self) -> None:
+        # A throwaway single-use code, captured right after a COUNT ADD on
+        # an SN534 lock; it was deleted straight after.
+        data = bytes.fromhex("00000000") + bytes.fromhex(
+            "1d0208343436353231343508343436353231343500010100001a0b191521"
+        )
+        entry, _ = cmd.parse_passcode_list_response(
+            bytes([cmd.CMD_GET_PASSCODES, cmd.RESPONSE_SUCCESS]) + data
+        )
+        assert entry is not None
+        assert entry.passcode == "44652145"
+        assert entry.pwd_type is KeyboardPwdType.COUNT
+        assert entry.start_date == dt.datetime(2000, 1, 1, 0, 0)  # noqa: DTZ001 -- lock RTC is naive
+        assert entry.end_date == dt.datetime(2026, 11, 25, 21, 33)  # noqa: DTZ001 -- lock RTC is naive
+        assert entry.cyclic_schedule is None
 
     def test_trailer_too_short_raises(self) -> None:
         item = _passcode_item(

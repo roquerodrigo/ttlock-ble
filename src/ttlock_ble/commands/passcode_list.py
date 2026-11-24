@@ -45,6 +45,7 @@ _MINIMUM_ITEM_LENGTH = 4  # item_length + pwd_type + new_pwd_length + pwd_length
 
 _TRAILER_LENGTH_BY_TYPE: dict[int, int] = {
     KeyboardPwdType.PERMANENT: 5,  # [start_date: 5], always the sentinel in every example seen
+    KeyboardPwdType.COUNT: 10,  # [start_date: 5][end_date: 5], as PERIOD
     KeyboardPwdType.PERIOD: 10,  # [start_date: 5][end_date: 5]
     KeyboardPwdType.CIRCLE: 7,  # [date sentinel: 3][start_hour][start_minute][?][low_byte]
 }
@@ -130,8 +131,8 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[PasscodeEntry | None
     `next_sequence == 0`, even if it returned alongside a real final
     entry.
 
-    An item whose `pwd_type` is unrecognized, or one with no confirmed
-    trailer layout (`COUNT`), is skipped rather than fatal: it comes back
+    An item whose `pwd_type` is unrecognized is skipped rather than
+    fatal: it comes back
     as `entry=None` with the real `next_sequence`, and a warning is
     logged, so one such passcode cannot hide every other one on the lock.
     Diagnostics describe structure only: the item contains working PINs.
@@ -175,7 +176,7 @@ def parse_passcode_list_response(plaintext: bytes) -> tuple[PasscodeEntry | None
     cyclic_schedule: CyclicSchedule | None = None
     if pwd_type == KeyboardPwdType.PERMANENT:
         start_date = _decode_date_or_raise(trailer[0:5], "start_date")
-    elif pwd_type == KeyboardPwdType.PERIOD:
+    elif pwd_type in {KeyboardPwdType.COUNT, KeyboardPwdType.PERIOD}:
         start_date = _decode_date_or_raise(trailer[0:5], "start_date")
         end_date = _decode_date_or_raise(trailer[5:10], "end_date")
     else:

@@ -18,6 +18,7 @@ from bleak.exc import BleakError
 import ttlock_ble.ble.device_finder as device_finder_mod
 import ttlock_ble.ble.transport as transport_mod
 import ttlock_ble.client as client_mod
+import ttlock_ble.credentials.passcode_manager as passcode_manager_mod
 from tests.conftest import make_virtual_key
 from ttlock_ble import DeviceInfo, LockVolume, TTLockClient, VirtualKey
 from ttlock_ble import commands as cmd
@@ -558,9 +559,7 @@ class TestCommands:
     ) -> None:
         client, fake, key = await self._connected(patched_connect)
         permanent_sentinel = bytes([0x00, 0x01, 0x01, 0x00, 0x00])
-        count_item = _passcode_item(
-            pwd_type=int(KeyboardPwdType.COUNT), new_pwd=b"1111", pwd=b"1111", trailer=b""
-        )
+        count_item = _passcode_item(pwd_type=9, new_pwd=b"1111", pwd=b"1111", trailer=b"")
         permanent_item = _passcode_item(
             pwd_type=int(KeyboardPwdType.PERMANENT),
             new_pwd=b"2222",
@@ -631,7 +630,7 @@ class TestCommands:
     async def test_get_passcodes_exceeds_safety_cap_raises(
         self, patched_connect, monkeypatch
     ) -> None:
-        monkeypatch.setattr(client_mod, "_MAX_PASSCODE_ENTRIES", 2)
+        monkeypatch.setattr(passcode_manager_mod, "_MAX_PASSCODE_ENTRIES", 2)
         client, fake, key = await self._connected(patched_connect)
         item = _passcode_item(
             pwd_type=int(KeyboardPwdType.PERMANENT),

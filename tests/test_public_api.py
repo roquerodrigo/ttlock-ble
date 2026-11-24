@@ -14,6 +14,7 @@ from ttlock_ble import TTLockClient
 
 EXPECTED_EXPORTS = frozenset(
     {
+        "AdminPasscodeManager",
         "AutoLockLimits",
         "AutoLockOperate",
         "CardEntry",
@@ -40,6 +41,7 @@ EXPECTED_EXPORTS = frozenset(
         "LogEntry",
         "LogOperate",
         "PasscodeEntry",
+        "PasscodeManager",
         "Period",
         "Permanent",
         "PwdOperateType",
@@ -62,6 +64,7 @@ EXPECTED_CLIENT_MEMBERS = frozenset(
     {
         "add_event_listener",
         "add_passcode",
+        "admin_passcode",
         "calibrate_time",
         "clear_passcodes",
         "connect",
@@ -81,6 +84,7 @@ EXPECTED_CLIENT_MEMBERS = frozenset(
         "is_connected",
         "key",
         "lock",
+        "passcodes",
         "query_state",
         "remove_event_listener",
         "scan_timeout",

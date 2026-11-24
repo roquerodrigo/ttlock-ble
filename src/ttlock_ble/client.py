@@ -20,6 +20,7 @@ from .ble.constants import (
     DEVICE_INFO_SOFTWARE_REVISION_CHAR,
 )
 from .constants import KeyboardPwdType, LockErrorCode, LockState
+from .credentials import AdminChannel, AdminPasscodeManager, PasscodeManager
 from .crypto import aes_decrypt, hex_key_to_bytes
 from .exceptions import TTLockError, UnsupportedFeatureError, rejection_error
 from .models import (
@@ -53,10 +54,9 @@ if TYPE_CHECKING:
 log: logging.Logger = logging.getLogger("ttlock_ble.client")
 
 # Only a runaway cursor should ever reach these: TTLock advertises at most
-# 200 fingerprints and 150 passcodes per lock, so both caps sit well above
-# what any firmware can hold - see `get_fingerprints` and `get_passcodes`.
+# 200 fingerprints per lock, so the caps sit well above what any firmware
+# can hold - see `get_fingerprints` and `get_cards`.
 _MAX_FINGERPRINT_ENTRIES = 300
-_MAX_PASSCODE_ENTRIES = 300
 _MAX_CARD_ENTRIES = 300
 # Each "command received" restarts the reply deadline, so a lock repeating it
 # would otherwise keep a command waiting forever.
@@ -122,6 +122,17 @@ class TTLockClient:
             is_connected=lambda: self._transport.is_connected,
             lock_label=key.lockMac,
         )
+        channel = AdminChannel(
+            command_lock=self._command_lock,
+            authorize=self._admin_handshake,
+            send=self._credential_command,
+            query=self._query,
+            require_feature=self._require_feature,
+        )
+        self.passcodes = PasscodeManager(channel)
+        """Keypad passcodes: list, add, modify, delete and clear them."""
+        self.admin_passcode = AdminPasscodeManager(channel)
+        """The admin passcode that opens the lock's settings at the keypad."""
 
     @classmethod
     def from_ble_device(
@@ -452,62 +463,11 @@ class TTLockClient:
             )
 
     async def get_passcodes(self) -> list[PasscodeEntry]:
-        """Read the keypad passcodes visible to this query - NOT an exhaustive list.
+        """Read the keypad passcodes the lock reports - NOT an exhaustive list.
 
-        A passcode not created through this library, and never yet
-        physically used at the keypad, will not appear here, even
-        though it is active and valid. This method cannot be used to
-        enumerate all passcodes currently on the lock - only custom-type
-        entries and any others confirmed via real-world use.
-
-        Confirmed via extensive live testing: passcodes created via
-        `add_passcode` (CMD 0x03, regardless of the `pwd_type`
-        requested) appear immediately and permanently, every time this
-        list is read. Passcodes created via the official app's own
-        batch/offline-capable mechanism (CMD 0x31) do not appear until
-        they have been successfully used on the physical keypad at
-        least once.
-
-        Admin-gated by design, matching `add_passcode` - unlike that
-        method's history, this has not been independently tested
-        without the handshake, so treat the gating as precautionary
-        rather than confirmed necessary. Single connection, single admin
-        handshake, one BLE round-trip per entry - follows the lock's own
-        `next_sequence` cursor until it reaches 0, rather than counting
-        a fixed range. Raises `TTLockError` if the cursor never reaches
-        0 within `_MAX_PASSCODE_ENTRIES` round trips, rather than
-        silently returning a possibly-incomplete list.
-
-        See `PasscodeEntry` and `CyclicSchedule` for what each field
-        means, including which parts of the cyclic (day-of-week)
-        schedule format remain unconfirmed.
+        Same as `passcodes.list()`, which documents what the query misses.
         """
-        async with self._command_lock:
-            await self._admin_handshake()
-            entries: list[PasscodeEntry] = []
-            sequence = 0
-            for _attempt in range(_MAX_PASSCODE_ENTRIES):
-                resp = await self._transport.exchange(
-                    self._frame(cmd.CMD_GET_PASSCODES, cmd.payload_passcode_list(sequence))
-                )
-                plain = self._decrypt_response(resp, "get_passcodes")
-                log.debug("passcode list response: length=%d", len(plain))
-                try:
-                    entry, next_sequence = cmd.parse_passcode_list_response(plain)
-                except (RuntimeError, ValueError) as error:
-                    raise TTLockError(f"Failed to get_passcodes: {error}") from None
-                if entry is not None:
-                    entries.append(entry)
-                if next_sequence == 0:
-                    break
-                sequence = next_sequence
-            else:
-                raise TTLockError(
-                    f"Failed to get_passcodes: exceeded safety cap of "
-                    f"{_MAX_PASSCODE_ENTRIES} entries without the lock's cursor reaching 0"
-                )
-        log.info("fetched %d passcode(s)", len(entries))
-        return entries
+        return await self.passcodes.list()
 
     async def get_operation_log(
         self,
@@ -779,6 +739,11 @@ class TTLockClient:
         log.info("device features: %s (battery %d%%)", features.feature_value, features.battery)
         self._device_features = features
         return features
+
+    async def _query(self, opcode: int, payload: bytes, label: str) -> bytes:
+        """Send one command and return the decrypted reply, envelope included."""
+        resp = await self._transport.exchange(self._frame(opcode, payload))
+        return self._decrypt_response(resp, label)
 
     async def _require_feature(self, action: str, feature: LockFeature) -> None:
         """Raise `UnsupportedFeatureError` unless the lock's own mask advertises `feature`.
