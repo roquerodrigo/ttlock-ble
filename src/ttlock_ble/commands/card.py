@@ -58,18 +58,31 @@ _END_OF_LIST_DATA_LENGTH = 4
 _END_OF_LIST_TAIL = bytes([_LIST_OPERATION, 0xFF, 0xFF])
 
 
-def payload_card_list(index: int) -> bytes:
-    """Build the CMD 0x05 sub-op 0x01 payload for one indexed card query.
+def payload_card_list(position: int) -> bytes:
+    """Build the CMD 0x05 sub-op 0x01 payload for one card list query.
 
-    `index` starts at 0 and increments by 1 per call - each call returns
-    at most one enrolled card, or the end-of-list response. Mirrors
-    `payload_fingerprint_list`'s indexing exactly.
+    `position` is a cursor, not an index: start at 0, then pass back the
+    position the previous reply carried. The lock answers with the next
+    enrolled card after that position - or the end-of-list response - so
+    positions skip over deleted cards. Mirrors `payload_fingerprint_list`.
     """
-    return bytes([_LIST_OPERATION]) + index.to_bytes(2, "big")
+    return bytes([_LIST_OPERATION]) + position.to_bytes(2, "big")
 
 
 def parse_card_list_response(plaintext: bytes) -> CardEntry | None:
     """Decode one CMD 0x05/0x01 response. Returns `None` at the end-of-list marker.
+
+    Same as `parse_card_list_page`, minus the position.
+    """
+    page = parse_card_list_page(plaintext)
+    return None if page is None else page[0]
+
+
+def parse_card_list_page(plaintext: bytes) -> tuple[CardEntry, int] | None:
+    """Decode one CMD 0x05/0x01 response into `(entry, position)`.
+
+    Returns `None` at the end-of-list marker. `position` is the cursor to
+    send as the next request (see `payload_card_list`).
 
     Raises `RuntimeError` on a FAILED status. Raises `ValueError` if a
     SUCCESS response's data matches neither confirmed entry length.
@@ -79,10 +92,9 @@ def parse_card_list_response(plaintext: bytes) -> CardEntry | None:
 
         [0]        battery percentage - not exposed on `CardEntry`
         [1]        op_echo (always 0x01)
-        [2:4]      position (index + 1) - discarded; not a total count,
-                   mirrors `parse_fingerprint_list_response`'s `position`
-                   exactly, including the same caution against reading
-                   more into it than that
+        [2:4]      position - the cursor for the next query; not an index
+                   and not a total count (it skips deleted cards), as
+                   for `parse_fingerprint_list_page`
         [4:4+N]    card_id (N = 4 or 8 bytes, see the module docstring)
         [4+N:9+N]  start_date (5-byte decimal date)
         [9+N:14+N] end_date (5-byte decimal date)
@@ -105,11 +117,12 @@ def parse_card_list_response(plaintext: bytes) -> CardEntry | None:
     card_id_end = 4 + card_id_length
     start_date_raw = data[card_id_end : card_id_end + 5]
     end_date_raw = data[card_id_end + 5 : card_id_end + 10]
-    return CardEntry(
+    entry = CardEntry(
         card_id=data[4:card_id_end],
         start_date=None if start_date_raw == START_DATE_SENTINEL else decode_date5(start_date_raw),
         end_date=None if end_date_raw == END_DATE_SENTINEL else decode_date5(end_date_raw),
     )
+    return entry, int.from_bytes(data[2:4], "big")
 
 
 def payload_card_enroll() -> bytes:

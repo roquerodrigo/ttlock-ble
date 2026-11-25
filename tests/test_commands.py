@@ -386,6 +386,24 @@ class TestCardList:
         plain = bytes([cmd.CMD_MANAGE_IC_CARD, cmd.RESPONSE_SUCCESS, 0x00, 0x01, 0xFF, 0xFF])
         assert cmd.parse_card_list_response(plain) is None
 
+    def test_page_reports_the_position_not_the_index(self) -> None:
+        # Constructed from the confirmed layout, not captured.
+        plain = _card_response(
+            position=3,
+            card_id=bytes([0x11, 0x22, 0x33, 0x44]),
+            start=cmd.START_DATE_SENTINEL,
+            end=cmd.END_DATE_SENTINEL,
+        )
+        page = cmd.parse_card_list_page(plain)
+        assert page is not None
+        entry, position = page
+        assert position == 3
+        assert entry.card_id == bytes([0x11, 0x22, 0x33, 0x44])
+
+    def test_page_end_of_list_returns_none(self) -> None:
+        plain = bytes([0x05, cmd.RESPONSE_SUCCESS, 0x55, 0x01, 0xFF, 0xFF])
+        assert cmd.parse_card_list_page(plain) is None
+
     def test_permanent_entry(self) -> None:
         # Mirrors a real capture of a permanent card, with the card id
         # replaced by a synthetic value.
