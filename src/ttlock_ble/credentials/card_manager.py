@@ -91,9 +91,14 @@ class CardManager:
     async def list(self, *, include_weekly_windows: bool = True) -> list[CardEntry]:
         """Read every enrolled card, with its weekly windows unless told not to.
 
-        One round trip per card, following the lock's own index until its
-        end-of-list reply; raises `TTLockError` if that never comes within
-        `_MAX_CARD_ENTRIES` queries. Not gated on a feature, so it keeps
+        One round trip per card, following the lock's own list cursor: the
+        first query sends position 0 and each reply's position is sent back
+        as the next query, so the lock answers with the next card after it.
+        Positions skip deleted cards - counting 0, 1, 2, ... would list the
+        card after a gap twice (confirmed on SN484_PV53). Stops at the
+        lock's end-of-list reply, or when a reply's position does not
+        advance (a repeat of a card already listed); raises `TTLockError`
+        if neither happens within `_MAX_CARD_ENTRIES` queries. Not gated on a feature, so it keeps
         working on locks whose mask omits `IC`.
 
         With `include_weekly_windows` each entry's `weekly_windows` holds
@@ -107,18 +112,23 @@ class CardManager:
         """
         entries: list[CardEntry] = []
         async with self._channel.session():
-            for index in range(_MAX_CARD_ENTRIES):
+            position = 0
+            for _ in range(_MAX_CARD_ENTRIES):
                 plain = await self._channel.query(
-                    cmd.CMD_MANAGE_IC_CARD, cmd.payload_card_list(index), "get_cards"
+                    cmd.CMD_MANAGE_IC_CARD, cmd.payload_card_list(position), "get_cards"
                 )
                 log.debug("card list response: length=%d", len(plain))
                 try:
-                    entry = cmd.parse_card_list_response(plain)
+                    page = cmd.parse_card_list_page(plain)
                 except (RuntimeError, ValueError) as error:
                     raise TTLockError(f"Failed to get_cards: {error}") from None
-                if entry is None:
+                if page is None:
+                    break
+                entry, reply_position = page
+                if reply_position <= position:
                     break
                 entries.append(entry)
+                position = reply_position
             else:
                 raise TTLockError(
                     f"Failed to get_cards: exceeded safety cap of "

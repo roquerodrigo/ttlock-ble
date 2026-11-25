@@ -24,6 +24,7 @@ from .auto_lock import (
 from .card import (
     check_card_validity,
     parse_card_enrollment_reply,
+    parse_card_list_page,
     parse_card_list_response,
     payload_card_add,
     payload_card_clear,
@@ -156,6 +157,7 @@ __all__ = [
     "parse_auto_lock_limits_response",
     "parse_auto_lock_response",
     "parse_card_enrollment_reply",
+    "parse_card_list_page",
     "parse_card_list_response",
     "parse_check_admin_response",
     "parse_check_user_time_response",

@@ -113,6 +113,9 @@ class FakeBleakClient:
         self._notify_cb: Callable[[object, bytearray], None] | None = None
         self.written: list[bytes] = []
         self.reply_for_next: list[Frame | list[Frame]] = []
+        # When set, answers a written frame itself (returning `None` falls back
+        # to `reply_for_next`) - for a fake lock whose reply depends on the request.
+        self.responder: Callable[[Frame], Frame | None] | None = None
         self._outgoing = FrameReassembler()
         self.read_uuids: list[str] = []
         self.disconnected = False
@@ -135,8 +138,14 @@ class FakeBleakClient:
     async def write_gatt_char(self, _char: object, data: bytes, *, response: bool) -> None:  # noqa: ARG002 -- matches bleak's signature; callers pass response= by keyword
         self.written.append(bytes(data))
         # Once the full frame is written, deliver the queued reply via notify.
-        if not self._outgoing.feed(bytes(data)):
+        frames = self._outgoing.feed(bytes(data))
+        if not frames:
             return
+        if self.responder is not None and self._notify_cb is not None:
+            answer = self.responder(frames[0])
+            if answer is not None:
+                self._notify_cb("notify-char", bytearray(answer.build()))
+                return
         if self.reply_for_next and self._notify_cb is not None:
             reply = self.reply_for_next.pop(0)
             for frame in reply if isinstance(reply, list) else [reply]:
@@ -1056,12 +1065,66 @@ class TestCommands:
         with pytest.raises(TTLockError, match="Failed to get_cards"):
             await client.get_cards()
 
-    async def test_get_cards_exceeds_safety_cap_raises(self, patched_connect, monkeypatch) -> None:
-        monkeypatch.setattr(card_manager_mod, "_MAX_CARD_ENTRIES", 2)
+    async def test_get_cards_feeds_the_list_position_back_as_the_cursor(
+        self, patched_connect
+    ) -> None:
+        # Reproduced on SN484_PV53: cards 000f4241-000f4243 added, the middle
+        # one deleted; counting 0, 1, 2 listed 000f4243 twice. The replies
+        # below are CONSTRUCTED from the confirmed list layout, not captured
+        # (the card listing does not log plaintext, so card ids stay out of
+        # logs). The fake lock answers "the next entry after position N".
+        client, fake, key = await self._connected(patched_connect)
+        aes = hex_key_to_bytes(key.aesKeyStr)
+        stored = [
+            _card_entry_plain(
+                position=1,
+                card_id=bytes.fromhex("000f4241"),
+                start=cmd.START_DATE_SENTINEL,
+                end=cmd.END_DATE_SENTINEL,
+            ),
+            # Position 2 (000f4242) was deleted.
+            _card_entry_plain(
+                position=3,
+                card_id=bytes.fromhex("000f4243"),
+                start=cmd.START_DATE_SENTINEL,
+                end=cmd.END_DATE_SENTINEL,
+            ),
+        ]
+        requested: list[int] = []
+
+        def lock(frame: Frame) -> Frame | None:
+            if frame.command == cmd.CMD_CHECK_ADMIN:
+                return _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain())
+            if frame.command == cmd.CMD_CHECK_RANDOM:
+                return _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM))
+            if frame.command != cmd.CMD_MANAGE_IC_CARD:
+                return None
+            cursor = int.from_bytes(aes_decrypt(frame.data, aes)[1:3], "big")
+            requested.append(cursor)
+            for reply in stored:
+                if int.from_bytes(reply[4:6], "big") > cursor:
+                    return _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, reply)
+            return _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, _CARD_END_OF_LIST)
+
+        fake.responder = lock
+
+        entries = await client.get_cards()
+
+        assert requested == [0, 1, 3]
+        assert [e.card_id for e in entries] == [
+            bytes.fromhex("000f4241"),
+            bytes.fromhex("000f4243"),
+        ]
+
+    async def test_get_cards_stops_when_the_position_does_not_advance(
+        self, patched_connect
+    ) -> None:
+        # A lock that re-echoes the last entry must not list it twice nor
+        # loop until the safety cap.
         client, fake, key = await self._connected(patched_connect)
         entry = _card_entry_plain(
-            position=1,
-            card_id=bytes([0x11, 0x22, 0x33, 0x44]),
+            position=3,
+            card_id=bytes.fromhex("000f4243"),
             start=cmd.START_DATE_SENTINEL,
             end=cmd.END_DATE_SENTINEL,
         )
@@ -1070,6 +1133,29 @@ class TestCommands:
             _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
             _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, entry),
             _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, entry),
+        ]
+
+        entries = await client.get_cards()
+
+        assert [e.card_id for e in entries] == [bytes.fromhex("000f4243")]
+
+    async def test_get_cards_exceeds_safety_cap_raises(self, patched_connect, monkeypatch) -> None:
+        monkeypatch.setattr(card_manager_mod, "_MAX_CARD_ENTRIES", 2)
+        client, fake, key = await self._connected(patched_connect)
+
+        def entry(position: int) -> bytes:
+            return _card_entry_plain(
+                position=position,
+                card_id=bytes([0x11, 0x22, 0x33, 0x44]),
+                start=cmd.START_DATE_SENTINEL,
+                end=cmd.END_DATE_SENTINEL,
+            )
+
+        fake.reply_for_next = [
+            _resp_frame(key, cmd.CMD_CHECK_ADMIN, _check_admin_plain()),
+            _resp_frame(key, cmd.CMD_CHECK_RANDOM, _status_plain(cmd.CMD_CHECK_RANDOM)),
+            _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, entry(1)),
+            _resp_frame(key, cmd.CMD_MANAGE_IC_CARD, entry(2)),
         ]
         with pytest.raises(TTLockError, match="exceeded safety cap"):
             await client.get_cards()
