@@ -1,0 +1,168 @@
+{
+ "description": "Decrypted plaintexts of the official TTLock app managing fingerprints on an SN484_PV53 lock (firmware 6.5.15.240522): enrolling a dated fingerprint twice, deleting it, and editing a fingerprint's validity. RX values are RESPONSE (0x54) payloads; the byte after the echo and status is the battery level. Authentication frames and the card captures of the same sessions are omitted.",
+ "sanitized": "Fingerprint ids replaced consistently with placeholder values (aabbcc01, aabbcc02, aabbcc03; slots as captured); all other bytes are as captured.",
+ "model": "SN484_PV53, fw 6.5.15.240522",
+ "operations": [
+  {
+   "operation": "enroll fingerprint, run 1",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 2 (add), op 1",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "add mode ready, 4 touches required",
+     "plaintext": "060140020204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "unsolicited 0x14, not decoded. Not part of the enrollment protocol: the repeat enrollment (run 2) has no 0x14. In run 1 a fingerprint had been used by accident shortly before; whether 0x14 relates to that is not tested. The same 0x14 also appeared once during a pairing capture on a lock without fingerprints.",
+     "plaintext": "1401400002"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 1/4",
+     "plaintext": "06014002030104"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 2/4 (frame had a CRC mismatch)",
+     "plaintext": "06014002030204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 3/4",
+     "plaintext": "06014002030304"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "done: fingerprint aabbcc01, slot 10",
+     "plaintext": "0601400201aabbcc01000a"
+    },
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 5 validity 2026-11-22 19:45 .. 2027-11-22 19:45",
+     "plaintext": "05aabbcc01000a1a0b16132d1b0b16132d"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "06014005"
+    }
+   ]
+  },
+  {
+   "operation": "delete fingerprint, run 1",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 3 (delete) fingerprint aabbcc01 slot 10",
+     "plaintext": "03aabbcc01000a"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "reply after 1.2 s",
+     "plaintext": "06014003"
+    }
+   ]
+  },
+  {
+   "operation": "enroll fingerprint, run 2",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 2 (add), op 1",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "add mode ready, 4 touches required",
+     "plaintext": "06013e020204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 1/4 (frame had a CRC mismatch)",
+     "plaintext": "06013e02030104"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 2/4",
+     "plaintext": "06013e02030204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 3/4",
+     "plaintext": "06013e02030304"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "done: fingerprint aabbcc02, slot 10",
+     "plaintext": "06013e0201aabbcc02000a"
+    },
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 5 validity 2026-11-22 19:59 .. 2027-11-22 19:59",
+     "plaintext": "05aabbcc02000a1a0b16133b1b0b16133b"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "(frame had a CRC mismatch)",
+     "plaintext": "06013e05"
+    }
+   ]
+  },
+  {
+   "operation": "delete fingerprint, run 2",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 3 (delete) fingerprint aabbcc02 slot 10",
+     "plaintext": "03aabbcc02000a"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "reply after 1.1 s",
+     "plaintext": "06013e03"
+    }
+   ]
+  },
+  {
+   "operation": "edit a fingerprint validity",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "fingerprint validity, sub-op 5: 2026-09-01 01:00 .. 2027-09-02 00:59",
+     "plaintext": "05aabbcc0300091a090101001b0902003b"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "plaintext": "06014005"
+    }
+   ]
+  }
+ ]
+}

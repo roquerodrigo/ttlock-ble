@@ -17,8 +17,8 @@ from bleak.exc import BleakError
 
 import ttlock_ble.ble.device_finder as device_finder_mod
 import ttlock_ble.ble.transport as transport_mod
-import ttlock_ble.client as client_mod
 import ttlock_ble.credentials.card_manager as card_manager_mod
+import ttlock_ble.credentials.fingerprint_manager as fingerprint_manager_mod
 import ttlock_ble.credentials.passcode_manager as passcode_manager_mod
 from tests.conftest import make_virtual_key
 from ttlock_ble import DeviceInfo, LockVolume, TTLockClient, VirtualKey
@@ -1001,7 +1001,7 @@ class TestCommands:
     async def test_get_fingerprints_exceeds_safety_cap_raises(
         self, patched_connect, monkeypatch
     ) -> None:
-        monkeypatch.setattr(client_mod, "_MAX_FINGERPRINT_ENTRIES", 2)
+        monkeypatch.setattr(fingerprint_manager_mod, "_MAX_FINGERPRINT_ENTRIES", 2)
         client, fake, key = await self._connected(patched_connect)
 
         def entry(position: int) -> bytes:

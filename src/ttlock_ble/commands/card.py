@@ -15,10 +15,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..models import CardEntry, Permanent, SingleUse
-from .encoding import decode_date5, encode_date5
+from ..models import CardEntry
+from .encoding import decode_date5
 from .envelope import RESPONSE_SUCCESS, parse_response_status
-from .fingerprint import END_DATE_SENTINEL, START_DATE_SENTINEL
+from .fingerprint import END_DATE_SENTINEL, START_DATE_SENTINEL, validity_dates
 
 if TYPE_CHECKING:
     from ..models import Validity
@@ -150,12 +150,7 @@ def parse_card_enrollment_reply(data: bytes) -> bytes | None:
 
 def _dates(validity: Validity) -> bytes:
     """Return `[start 5B][end 5B]` for a validity; cards have no single-use form."""
-    if isinstance(validity, SingleUse):
-        raise ValueError("a card cannot be single-use")  # noqa: TRY004 -- ValueError is the contract for input the lock cannot take
-    permanent = START_DATE_SENTINEL + END_DATE_SENTINEL
-    if isinstance(validity, Permanent) or validity.start is None or validity.end is None:
-        return permanent
-    return encode_date5(validity.start) + encode_date5(validity.end)
+    return validity_dates(validity, "card")
 
 
 def check_card_validity(validity: Validity) -> None:

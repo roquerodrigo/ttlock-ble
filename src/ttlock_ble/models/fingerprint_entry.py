@@ -8,21 +8,26 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import datetime as dt
 
+    from .validity import WeeklyWindow
+
 
 @dataclass(frozen=True, slots=True)
 class FingerprintEntry:
     """One enrolled fingerprint, decoded from the indexed CMD 0x06/0x06 query.
 
-    The listing carries only the fingerprint's dates. Weekly windows live
-    in a separate record set (CMD 0x70): read them with
-    `TTLockClient.weekly_schedules.get(Credential.of(entry))` before
-    treating a fingerprint as unrestricted.
+    The listing carries only the fingerprint's dates. Weekly windows live in
+    a separate record set (CMD 0x70), which `TTLockClient.fingerprints.list`
+    reads into `weekly_windows` unless told not to. `None` there means they
+    were not read, so the fingerprint may still be restricted; read them with
+    `TTLockClient.weekly_schedules.get(Credential.of(entry))` before treating
+    it as unrestricted. An empty tuple means the fingerprint has none.
     """
 
     fingerprint_id: bytes = field(repr=False)
     slot: int = field(repr=False)
     start_date: dt.datetime | None
     end_date: dt.datetime | None
+    weekly_windows: tuple[WeeklyWindow, ...] | None = None
 
     @property
     def identifier(self) -> bytes:

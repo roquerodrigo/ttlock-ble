@@ -1,0 +1,202 @@
+{
+ "description": "Decrypted plaintexts of the official TTLock app managing fingerprints on an SN478_PV53 (Android HCI log, decoded with ttlock_btsnoop_decode.py), captured 2026-11-25. Authentication frames and the trailing CHECK_USER_TIME/CHECK_RANDOM/CALIBRATE_TIME after an enrollment are omitted. RX values are RESPONSE (0x54) payloads; progress and completion are unsolicited RESPONSE frames. The byte after the echo and status is the battery level. Fingerprint ids are kept as captured (not sensitive).",
+ "model": "SN478_PV53, fw 6.4.43.240529",
+ "operations": [
+  {
+   "operation": "enroll, permanent",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 2 (add), op 1: enter add mode (no sub-op 4 before it)",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "add mode ready, 4 touches required",
+     "plaintext": "060164020204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 1/4",
+     "plaintext": "06016402030104"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 2/4",
+     "plaintext": "06016402030204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 3/4",
+     "plaintext": "06016402030304"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "done: new fingerprint id (4 bytes) + slot (2 bytes)",
+     "plaintext": "06016402013299d6ae0000"
+    }
+   ],
+   "note": "No validity command follows a permanent enrollment."
+  },
+  {
+   "operation": "enroll, timed",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 2 (add), op 1: enter add mode (no sub-op 4 before it)",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "add mode ready, 4 touches required",
+     "plaintext": "060164020204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 1/4",
+     "plaintext": "06016402030104"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 2/4",
+     "plaintext": "06016402030204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 3/4",
+     "plaintext": "06016402030304"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "done: new fingerprint id (4 bytes) + slot (2 bytes)",
+     "plaintext": "06016402013299d7970000"
+    },
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 5 validity 2026-11-25 17:29 .. 2027-12-25 17:29",
+     "plaintext": "053299d79700001a0b19111d1b0c19111d"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "06016405"
+    }
+   ]
+  },
+  {
+   "operation": "enroll, no finger placed (three attempts, identical)",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 2 (add), op 1",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "add mode ready, 4 touches required",
+     "plaintext": "060164020204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "about 8.4 s later: failure status, error 0xE4; the lock ends add mode by itself",
+     "plaintext": "0600e4"
+    }
+   ],
+   "note": "0xE4 is not found in the SDK material available to us; observed as the lock's own enrollment timeout. A single finger placed within about 5 s afterwards was not enrolled."
+  },
+  {
+   "operation": "enroll the same finger again (already enrolled with a date range and a weekly window)",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 2 (add), op 1: enter add mode (no sub-op 4 before it)",
+     "plaintext": "0201"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "add mode ready, 4 touches required",
+     "plaintext": "060164020204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 1/4",
+     "plaintext": "06016402030104"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 2/4",
+     "plaintext": "06016402030204"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "progress 3/4",
+     "plaintext": "06016402030304"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "done: new fingerprint id (4 bytes) + slot (2 bytes)",
+     "plaintext": "06016402013299e4a20002"
+    }
+   ],
+   "note": "The lock created a second, separate, permanent entry with a new id; the restricted entry kept its dates and window. The finger then opened the lock outside the restricted entry's window. The app reported success."
+  },
+  {
+   "operation": "delete one fingerprint",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 3: delete fingerprint (id + slot)",
+     "plaintext": "033299e2f60001"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "",
+     "plaintext": "06016403"
+    }
+   ]
+  },
+  {
+   "operation": "clear all fingerprints (app: reset)",
+   "frames": [
+    {
+     "direction": "TX",
+     "command": "0x06",
+     "meaning": "sub-op 4: delete all fingerprints",
+     "plaintext": "04"
+    },
+    {
+     "direction": "RX",
+     "command": "0x54",
+     "meaning": "all fingerprints removed",
+     "plaintext": "06016404"
+    }
+   ],
+   "note": "A bare 04 is clear-all. The current app never sends it when enrolling (SN478 and SN484)."
+  }
+ ]
+}
