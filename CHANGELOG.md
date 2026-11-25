@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.6](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.5...v0.3.6) (2026-11-25)
+
+Adds full management of keypad passcodes, weekly schedules, IC cards and fingerprints through new client managers and CLI commands, with typed errors and listing fixes.
+
+### New features
+
+- Credentials can now be given a validity (Permanent, Period, SingleUse or Weekly with WeeklyWindow and Weekday), and lock refusals raise typed errors such as LockRejectedError, CredentialAlreadyExistsError, CredentialNotFoundError, StorageFullError and UnsupportedFeatureError. ([#121](https://github.com/roquerodrigo/ttlock-ble/pull/121))
+- New client.passcodes and client.admin_passcode managers list, add, modify, delete and clear keypad passcodes, support permanent, dated, single-use and weekly passcodes, and read or replace the admin passcode. ([#122](https://github.com/roquerodrigo/ttlock-ble/pull/122))
+- The CLI add-passcode command accepts --start, --end, --single-use and --days/--from/--to, and new modify-passcode, get-admin-passcode and set-admin-passcode commands are available. ([#122](https://github.com/roquerodrigo/ttlock-ble/pull/122))
+- New client.weekly_schedules manager and get-schedule, set-schedule and clear-schedule CLI commands read, replace and remove the weekly windows of cards and fingerprints; set-schedule checks that the lock holds the credential first. ([#124](https://github.com/roquerodrigo/ttlock-ble/pull/124), [#126](https://github.com/roquerodrigo/ttlock-ble/pull/126))
+- New client.cards manager and enroll-card, add-card, modify-card, delete-card and clear-cards CLI commands manage IC cards; a card the lock already holds is restored and reported rather than deleted or reset. ([#127](https://github.com/roquerodrigo/ttlock-ble/pull/127), [#132](https://github.com/roquerodrigo/ttlock-ble/pull/132))
+- New client.fingerprints manager and enroll-fingerprint, modify-fingerprint, delete-fingerprint and clear-fingerprints CLI commands manage fingerprints, with touch progress reporting; a finger completing after the deadline is removed again. ([#130](https://github.com/roquerodrigo/ttlock-ble/pull/130), [#132](https://github.com/roquerodrigo/ttlock-ble/pull/132))
+- A command now raises LinkLostError as soon as the lock drops the BLE link, instead of waiting for the reply timeout, and card enrollment recovers from the lock dropping the link. ([#132](https://github.com/roquerodrigo/ttlock-ble/pull/132))
+
+### Improvements
+
+- Single-use passcodes now appear in the passcode listing with their dates instead of being skipped. ([#122](https://github.com/roquerodrigo/ttlock-ble/pull/122))
+- Card and fingerprint reprs no longer show card numbers or fingerprint ids, and the fingerprint listing no longer logs ids. ([#121](https://github.com/roquerodrigo/ttlock-ble/pull/121))
+
+### Bug fixes
+
+- Fingerprint and card listings no longer show the same entry twice after a middle entry has been deleted. ([#128](https://github.com/roquerodrigo/ttlock-ble/pull/128), [#129](https://github.com/roquerodrigo/ttlock-ble/pull/129))
+- The CLI refuses incomplete validity options, such as --from and --to without --days, instead of silently creating a permanent credential. ([#122](https://github.com/roquerodrigo/ttlock-ble/pull/122))
+
 ## [0.3.5](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.4...v0.3.5) (2026-11-14)
 
 ### Improvements
