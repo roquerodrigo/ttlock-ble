@@ -8,6 +8,7 @@ from .cloud import CloudError
 from .credential_already_exists import CredentialAlreadyExistsError
 from .credential_not_found import CredentialNotFoundError
 from .enrollment_timeout import EnrollmentTimeoutError
+from .fingerprint_enrolled_late import FingerprintEnrolledLateError
 from .lock_rejected import LockRejectedError
 from .rejection import rejection_error
 from .reply_timeout import ReplyTimeoutError
@@ -22,6 +23,7 @@ __all__ = [
     "CredentialAlreadyExistsError",
     "CredentialNotFoundError",
     "EnrollmentTimeoutError",
+    "FingerprintEnrolledLateError",
     "LockRejectedError",
     "ReplyTimeoutError",
     "StorageFullError",

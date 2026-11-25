@@ -12,6 +12,7 @@ from __future__ import annotations
 from .auto_lock_operate import AutoLockOperate
 from .card_enrollment_step import CardEnrollmentStep
 from .credential_type import CredentialType
+from .fingerprint_enrollment_step import FingerprintEnrollmentStep
 from .keyboard_pwd_type import KeyboardPwdType
 from .lock_error_code import LockErrorCode
 from .lock_feature import LockFeature
@@ -26,6 +27,7 @@ __all__ = [
     "AutoLockOperate",
     "CardEnrollmentStep",
     "CredentialType",
+    "FingerprintEnrollmentStep",
     "KeyboardPwdType",
     "LockErrorCode",
     "LockFeature",

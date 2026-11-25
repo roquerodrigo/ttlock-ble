@@ -24,6 +24,7 @@ from .credentials import (
     AdminChannel,
     AdminPasscodeManager,
     CardManager,
+    FingerprintManager,
     PasscodeManager,
     WeeklyScheduleManager,
 )
@@ -59,10 +60,6 @@ if TYPE_CHECKING:
 
 log: logging.Logger = logging.getLogger("ttlock_ble.client")
 
-# Only a runaway cursor should ever reach these: TTLock advertises at most
-# 200 fingerprints per lock, so the caps sit well above what any firmware
-# can hold - see `get_fingerprints` and `get_cards`.
-_MAX_FINGERPRINT_ENTRIES = 300
 # Each "command received" restarts the reply deadline, so a lock repeating it
 # would otherwise keep a command waiting forever.
 _MAX_ACKNOWLEDGEMENTS = 5
@@ -143,6 +140,8 @@ class TTLockClient:
         """The weekdays and hours each card and fingerprint works."""
         self.cards = CardManager(channel, self.weekly_schedules)
         """IC cards: list, enroll by tap, add, modify, delete and clear them."""
+        self.fingerprints = FingerprintManager(channel, self.weekly_schedules)
+        """Fingerprints: list, enroll, modify, delete and clear them."""
 
     @classmethod
     def from_ble_device(
@@ -536,31 +535,13 @@ class TTLockClient:
             return all_entries
 
     async def get_fingerprints(self) -> list[FingerprintEntry]:
-        """Read every enrolled fingerprint via the confirmed indexed CMD 0x06/0x06 query.
+        """Read every enrolled fingerprint, without its weekly windows.
 
-        Admin-gated - see `set_lock_sound`.
-
-        Follows the lock's own list cursor, one BLE round-trip per
-        fingerprint, over a single connection and a single admin
-        handshake - matching how the official app itself was observed
-        doing it (no reconnect per entry). The first query sends position
-        0; each reply carries the position of its entry, which is sent
-        back as the next query, and the lock answers with the next entry
-        after it. Positions are not consecutive: they skip deleted slots,
-        so counting 0, 1, 2, ... lists the entry after a gap twice. Stops
-        cleanly at the lock's own end-of-list response, or when a reply's
-        position does not advance (a repeat of an entry already listed).
-        Raises `TTLockError` if neither happens within
-        `_MAX_FINGERPRINT_ENTRIES` queries, rather than silently
-        returning a possibly-incomplete list.
-
-        Known limitation: this cannot detect whether a fingerprint also
-        has a cyclic (day-of-week/time-range) restriction - that data
-        lives in a separate mechanism (CMD 0x70) this method doesn't
-        query. A fingerprint returned here as permanent or timed may in
-        practice also be restricted to specific days/hours. Do not treat
-        the absence of that information as confirmation a fingerprint is
-        unrestricted.
+        Same as `fingerprints.list(include_weekly_windows=False)`, which
+        documents the query. Each entry's `weekly_windows` is `None`: this
+        cannot tell whether a fingerprint also has weekly (day-of-week/
+        time-range) windows, so do not treat a fingerprint as unrestricted on
+        this alone - use `fingerprints.list()` or `weekly_schedules.get`.
 
         Both the empty-list case and a real multi-entry result are
         confirmed on hardware - see
@@ -568,34 +549,7 @@ class TTLockClient:
         position-as-cursor behaviour, with a deleted middle slot, is
         confirmed on SN478_PV53.
         """
-        async with self._command_lock:
-            await self._admin_handshake()
-            entries: list[FingerprintEntry] = []
-            position = 0
-            for _ in range(_MAX_FINGERPRINT_ENTRIES):
-                resp = await self._transport.exchange(
-                    self._frame(cmd.CMD_MANAGE_FINGERPRINT, cmd.payload_fingerprint_list(position))
-                )
-                plain = self._decrypt_response(resp, "get_fingerprints")
-                log.debug("fingerprint list response plaintext: %s", plain.hex())
-                try:
-                    page = cmd.parse_fingerprint_list_page(plain)
-                except (RuntimeError, ValueError) as error:
-                    raise TTLockError(f"Failed to get_fingerprints: {error}") from error
-                if page is None:
-                    break
-                entry, reply_position = page
-                if reply_position <= position:
-                    break
-                entries.append(entry)
-                position = reply_position
-            else:
-                raise TTLockError(
-                    f"Failed to get_fingerprints: exceeded safety cap of "
-                    f"{_MAX_FINGERPRINT_ENTRIES} entries without an end-of-list response"
-                )
-        log.info("fetched %d fingerprint(s)", len(entries))
-        return entries
+        return await self.fingerprints.list(include_weekly_windows=False)
 
     async def get_cards(self) -> list[CardEntry]:
         """Read every enrolled IC card (tag), without its weekly windows.

@@ -16,12 +16,14 @@ Public API:
     DeviceProperties  — 6 confirmed TTLock-proprietary device properties
     AutoLockLimits    — the lock's own min/max allowed auto-lock delay
     FingerprintEntry  — one enrolled fingerprint (see get_fingerprints's caveat)
+    FingerprintEnrollmentProgress — one progress report of a fingerprint enrollment
     CardEntry         — one enrolled IC card/tag (see get_cards's caveat)
     PasscodeEntry     — one keypad passcode (see get_passcodes's scope caveat)
     CyclicSchedule    — the day-of-week/time-window rule behind a CIRCLE passcode
     Validity          — when a credential is accepted: Permanent, Period, SingleUse or Weekly
     WeeklyWindow      — the hours a Weekly credential works on one weekday
     CardManager       — `TTLockClient.cards`: list, enroll, add, modify, delete, clear
+    FingerprintManager — `TTLockClient.fingerprints`: list, enroll, modify, delete, clear
     PasscodeManager   — `TTLockClient.passcodes`: list, add, modify, delete, clear
     AdminPasscodeManager — `TTLockClient.admin_passcode`: read and replace it
     WeeklyScheduleManager — `TTLockClient.weekly_schedules`: card and fingerprint windows
@@ -32,14 +34,16 @@ Public API:
                       — the refusals a credential command can map to
     UnsupportedFeatureError — the lock's feature mask lacks what a command needs
     ReplyTimeoutError — the lock did not answer a command in time
-    EnrollmentTimeoutError — no card was presented while the lock waited for one
+    EnrollmentTimeoutError — no card or finger was presented while the lock waited for one
     CardPresentedLateError — a card was tapped after the timeout and was removed again
+    FingerprintEnrolledLateError — a finger completed enrollment after the timeout and was removed
     CardAlreadyEnrolledError — the card was already on the lock (enroll restored it, add refused)
     CloudError        — raised by `TTLockCloud` on a non-success HTTP response
 
 IntEnums:
-    AutoLockOperate, CardEnrollmentStep, CredentialType, KeyboardPwdType, LockErrorCode,
-    LockFeature, LockState, LockVolume, LogOperate, PwdOperateType, Weekday
+    AutoLockOperate, CardEnrollmentStep, CredentialType, FingerprintEnrollmentStep,
+    KeyboardPwdType, LockErrorCode, LockFeature, LockState, LockVolume, LogOperate,
+    PwdOperateType, Weekday
 """
 
 from __future__ import annotations
@@ -50,6 +54,7 @@ from .constants import (
     AutoLockOperate,
     CardEnrollmentStep,
     CredentialType,
+    FingerprintEnrollmentStep,
     KeyboardPwdType,
     LockErrorCode,
     LockFeature,
@@ -59,7 +64,13 @@ from .constants import (
     PwdOperateType,
     Weekday,
 )
-from .credentials import AdminPasscodeManager, CardManager, PasscodeManager, WeeklyScheduleManager
+from .credentials import (
+    AdminPasscodeManager,
+    CardManager,
+    FingerprintManager,
+    PasscodeManager,
+    WeeklyScheduleManager,
+)
 from .exceptions import (
     CardAlreadyEnrolledError,
     CardPresentedLateError,
@@ -67,6 +78,7 @@ from .exceptions import (
     CredentialAlreadyExistsError,
     CredentialNotFoundError,
     EnrollmentTimeoutError,
+    FingerprintEnrolledLateError,
     LockRejectedError,
     ReplyTimeoutError,
     StorageFullError,
@@ -83,6 +95,7 @@ from .models import (
     DeviceFeatures,
     DeviceInfo,
     DeviceProperties,
+    FingerprintEnrollmentProgress,
     FingerprintEntry,
     LockAdvertisement,
     LockEvent,
@@ -121,7 +134,11 @@ __all__ = [
     "DeviceInfo",
     "DeviceProperties",
     "EnrollmentTimeoutError",
+    "FingerprintEnrolledLateError",
+    "FingerprintEnrollmentProgress",
+    "FingerprintEnrollmentStep",
     "FingerprintEntry",
+    "FingerprintManager",
     "KeyboardPwdType",
     "LockAdvertisement",
     "LockErrorCode",

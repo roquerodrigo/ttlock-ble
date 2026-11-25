@@ -11,6 +11,7 @@ from .cyclic_schedule import CyclicSchedule
 from .device_features import DeviceFeatures
 from .device_info import DeviceInfo
 from .device_properties import DeviceProperties
+from .fingerprint_enrollment_progress import FingerprintEnrollmentProgress
 from .fingerprint_entry import FingerprintEntry
 from .lock_advertisement import LockAdvertisement
 from .lock_event import LockEvent
@@ -33,6 +34,7 @@ __all__ = [
     "DeviceFeatures",
     "DeviceInfo",
     "DeviceProperties",
+    "FingerprintEnrollmentProgress",
     "FingerprintEntry",
     "LockAdvertisement",
     "LockEvent",

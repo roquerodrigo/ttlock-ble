@@ -18,8 +18,16 @@ from . import commands as cmd
 from ._cloud_helpers import ERR_NEW_DEVICE_LOGIN
 from .client import TTLockClient
 from .cloud import TTLockCloud
-from .constants import CardEnrollmentStep, CredentialType, KeyboardPwdType, LockVolume, Weekday
+from .constants import (
+    CardEnrollmentStep,
+    CredentialType,
+    FingerprintEnrollmentStep,
+    KeyboardPwdType,
+    LockVolume,
+    Weekday,
+)
 from .credentials.card_manager import ENROLL_SAFETY_WINDOW
+from .credentials.fingerprint_manager import DEFAULT_ENROLL_TIMEOUT
 from .exceptions import CloudError, TTLockError
 from .models import (
     CLOUD_APPS,
@@ -46,6 +54,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
     from .constants import LockState
+    from .models import FingerprintEnrollmentProgress
 
 app = typer.Typer(add_completion=False, help="DLock-XP / TTLock BLE control")
 KEY_STORE = Path(os.environ.get("TTLOCK_KEY_STORE", "~/.ttlock/keys.json")).expanduser()
@@ -124,7 +133,7 @@ def _passcode_validity(
         raise typer.BadParameter(str(error)) from None
 
 
-def _card_validity(
+def _dated_validity(
     *,
     start: str | None,
     end: str | None,
@@ -166,6 +175,10 @@ def _card_validity(
 
 def _card_credential(card_id: str) -> Credential:
     return _schedule_credential(card_id, None)
+
+
+def _fingerprint_credential(fingerprint_id: str) -> Credential:
+    return _schedule_credential(None, fingerprint_id)
 
 
 def _validate[T](build: Callable[[], T]) -> T:
@@ -725,8 +738,8 @@ _END_HELP = "valid until, lock-local ISO time"
 _DAYS_HELP = "weekly: daily, workdays, weekend, or one day; with --from and --to"
 
 
-def _run_card_command[T](coroutine: Coroutine[object, object, T]) -> T:
-    """Run a card command, turning a library error into one error line and exit code 1."""
+def _run_credential_command[T](coroutine: Coroutine[object, object, T]) -> T:
+    """Run a card or fingerprint command; a library error becomes one error line and exit 1."""
     try:
         return asyncio.run(coroutine)
     except TTLockError as error:
@@ -752,12 +765,12 @@ def enroll_card(
     """Enroll a card by tapping it on the lock: permanent, dated or weekly (admin eKey)."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
-    validity = _card_validity(
+    validity = _dated_validity(
         start=start, end=end, days=days, window_start=window_start, window_end=window_end
     )
     _validate(lambda: cmd.check_card_validity(validity))
     key = _resolve_key(target)
-    credential = _run_card_command(_run_enroll_card(key, validity, timeout))
+    credential = _run_credential_command(_run_enroll_card(key, validity, timeout))
     typer.echo(
         f"✓ card enrolled: id {credential.identifier.hex()} (number {credential.card_number})"
     )
@@ -777,13 +790,13 @@ def add_card(
     """Add a card by its id, without tapping it (admin eKey)."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
-    validity = _card_validity(
+    validity = _dated_validity(
         start=start, end=end, days=days, window_start=window_start, window_end=window_end
     )
     card = _card_credential(card_id)
     _validate(lambda: cmd.payload_card_add(card.identifier, validity))
     key = _resolve_key(target)
-    _run_card_command(_run_add_card(key, card, validity))
+    _run_credential_command(_run_add_card(key, card, validity))
     typer.echo(f"✓ card {card_id} added")
 
 
@@ -805,13 +818,13 @@ def modify_card(
     given = any(value is not None for value in (start, end, days, window_start, window_end))
     if permanent == given:
         raise typer.BadParameter("give --permanent, or the new dates and/or --days")
-    validity = _card_validity(
+    validity = _dated_validity(
         start=start, end=end, days=days, window_start=window_start, window_end=window_end
     )
     card = _card_credential(card_id)
     _validate(lambda: cmd.payload_card_modify(card.identifier, validity))
     key = _resolve_key(target)
-    _run_card_command(_run_modify_card(key, card, validity))
+    _run_credential_command(_run_modify_card(key, card, validity))
     typer.echo(f"✓ card {card_id} updated")
 
 
@@ -829,7 +842,7 @@ def delete_card(
     key = _resolve_key(target)
     if not yes:
         typer.confirm(f"Remove card {card_id} from {key.lockAlias or key.lockMac}?", abort=True)
-    _run_card_command(_run_delete_card(key, card))
+    _run_credential_command(_run_delete_card(key, card))
     typer.echo(f"✓ card {card_id} removed")
 
 
@@ -848,7 +861,7 @@ def clear_cards(
             f"This removes EVERY card from {key.lockAlias or key.lockMac}, not just one. Continue?",
             abort=True,
         )
-    _run_card_command(_run_clear_cards(key))
+    _run_credential_command(_run_clear_cards(key))
     typer.echo("✓ all cards cleared")
 
 
@@ -942,6 +955,106 @@ def clear_schedule(
     typer.echo("✓ weekly windows removed")
 
 
+@app.command("enroll-fingerprint")
+def enroll_fingerprint(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    start: str | None = typer.Option(None, help=_START_HELP),
+    end: str | None = typer.Option(None, help=_END_HELP),
+    days: str | None = typer.Option(None, help=_DAYS_HELP),
+    window_start: str | None = typer.Option(None, "--from", help="weekly window start, HH:MM"),
+    window_end: str | None = typer.Option(None, "--to", help="weekly window end, HH:MM"),
+    timeout: float = typer.Option(
+        DEFAULT_ENROLL_TIMEOUT,
+        help="seconds the person has to finish; a finger completing after that is removed "
+        "again with an error (the lock ends enrollment itself after about 8 s without a touch)",
+    ),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Enroll a fingerprint by touching the lock's sensor: permanent, dated or weekly (admin eKey).
+
+    A finger that is already enrolled is not recognised: it becomes a second,
+    permanent entry, and the finger then opens the lock through that entry.
+    """
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    validity = _dated_validity(
+        start=start, end=end, days=days, window_start=window_start, window_end=window_end
+    )
+    _validate(lambda: cmd.check_fingerprint_validity(validity))
+    key = _resolve_key(target)
+    credential = _run_credential_command(_run_enroll_fingerprint(key, validity, timeout))
+    typer.echo(f"✓ fingerprint enrolled: id {credential.identifier.hex()}")
+
+
+@app.command("modify-fingerprint")
+def modify_fingerprint(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    fingerprint_id: str = typer.Argument(..., help=_FINGERPRINT_HELP),
+    permanent: bool = typer.Option(False, "--permanent", help="remove its dates and windows"),
+    start: str | None = typer.Option(None, help=_START_HELP),
+    end: str | None = typer.Option(None, help=_END_HELP),
+    days: str | None = typer.Option(None, help=_DAYS_HELP),
+    window_start: str | None = typer.Option(None, "--from", help="weekly window start, HH:MM"),
+    window_end: str | None = typer.Option(None, "--to", help="weekly window end, HH:MM"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Replace a fingerprint's dates and weekly windows (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    given = any(value is not None for value in (start, end, days, window_start, window_end))
+    if permanent == given:
+        raise typer.BadParameter("give --permanent, or the new dates and/or --days")
+    validity = _dated_validity(
+        start=start, end=end, days=days, window_start=window_start, window_end=window_end
+    )
+    fingerprint = _fingerprint_credential(fingerprint_id)
+    _validate(lambda: cmd.payload_fingerprint_modify(fingerprint.identifier, validity))
+    key = _resolve_key(target)
+    _run_credential_command(_run_modify_fingerprint(key, fingerprint, validity))
+    typer.echo(f"✓ fingerprint {fingerprint_id} updated")
+
+
+@app.command("delete-fingerprint")
+def delete_fingerprint(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    fingerprint_id: str = typer.Argument(..., help=_FINGERPRINT_HELP),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Remove one fingerprint (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    fingerprint = _fingerprint_credential(fingerprint_id)
+    key = _resolve_key(target)
+    if not yes:
+        typer.confirm(
+            f"Remove fingerprint {fingerprint_id} from {key.lockAlias or key.lockMac}?",
+            abort=True,
+        )
+    _run_credential_command(_run_delete_fingerprint(key, fingerprint))
+    typer.echo(f"✓ fingerprint {fingerprint_id} removed")
+
+
+@app.command("clear-fingerprints")
+def clear_fingerprints(
+    target: str = typer.Argument(..., help="lockId, alias, or MAC"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="skip the confirmation prompt"),
+    verbose: bool = typer.Option(False, "-v"),
+) -> None:
+    """Remove EVERY fingerprint from the lock - no undo (admin eKey)."""
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    key = _resolve_key(target)
+    if not yes:
+        typer.confirm(
+            f"This removes EVERY fingerprint from {key.lockAlias or key.lockMac}, "
+            "not just one. Continue?",
+            abort=True,
+        )
+    _run_credential_command(_run_clear_fingerprints(key))
+    typer.echo("✓ all fingerprints cleared")
+
+
 async def _run_unlock(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.unlock()
@@ -1026,6 +1139,39 @@ async def _run_delete_card(key: VirtualKey, card: Credential) -> None:
 async def _run_clear_cards(key: VirtualKey) -> None:
     async with TTLockClient(key) as c:
         await c.cards.clear()
+
+
+async def _run_enroll_fingerprint(
+    key: VirtualKey, validity: Validity, wait_seconds: float
+) -> Credential:
+    def report(progress: FingerprintEnrollmentProgress) -> None:
+        if progress.step == FingerprintEnrollmentStep.WAITING_FOR_FINGER:
+            typer.echo(
+                f"Touch the lock's sensor with the finger now; {progress.touches_required} "
+                "touches are needed..."
+            )
+        elif progress.step == FingerprintEnrollmentStep.TOUCH_RECORDED:
+            typer.echo(f"touch {progress.touches_recorded}/{progress.touches_required}")
+
+    async with TTLockClient(key) as c:
+        return await c.fingerprints.enroll(validity, report, timeout=wait_seconds)
+
+
+async def _run_modify_fingerprint(
+    key: VirtualKey, fingerprint: Credential, validity: Validity
+) -> None:
+    async with TTLockClient(key) as c:
+        await c.fingerprints.modify(fingerprint, validity)
+
+
+async def _run_delete_fingerprint(key: VirtualKey, fingerprint: Credential) -> None:
+    async with TTLockClient(key) as c:
+        await c.fingerprints.delete(fingerprint)
+
+
+async def _run_clear_fingerprints(key: VirtualKey) -> None:
+    async with TTLockClient(key) as c:
+        await c.fingerprints.clear()
 
 
 async def _run_get_admin_passcode(key: VirtualKey) -> str:
