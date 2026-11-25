@@ -121,6 +121,8 @@ def _passcode_validity(
             opens = _parse_time(window_start, "--from")
             closes = _parse_time(window_end, "--to")
             return Weekly(tuple(WeeklyWindow(day, opens, closes) for day in _parse_days(days)))
+        if window_start is not None or window_end is not None:
+            raise typer.BadParameter("--from and --to need --days")
         if start is None and end is None:
             if single_use:
                 raise typer.BadParameter("--single-use needs --start and --end")
