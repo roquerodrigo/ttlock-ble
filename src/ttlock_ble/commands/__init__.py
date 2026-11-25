@@ -52,6 +52,7 @@ from .envelope import RESPONSE_FAILED, RESPONSE_SUCCESS, parse_response_status
 from .fingerprint import (
     END_DATE_SENTINEL,
     START_DATE_SENTINEL,
+    parse_fingerprint_list_page,
     parse_fingerprint_list_response,
     payload_fingerprint_list,
 )
@@ -163,6 +164,7 @@ __all__ = [
     "parse_device_property_clock",
     "parse_device_property_mac",
     "parse_device_property_string",
+    "parse_fingerprint_list_page",
     "parse_fingerprint_list_response",
     "parse_get_lock_time_response",
     "parse_lock_sound_response",

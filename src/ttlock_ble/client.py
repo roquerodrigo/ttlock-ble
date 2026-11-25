@@ -540,11 +540,17 @@ class TTLockClient:
 
         Admin-gated - see `set_lock_sound`.
 
-        Loops the index from 0, one BLE round-trip per fingerprint, over
-        a single connection and a single admin handshake - matching how
-        the official app itself was observed doing it (no reconnect per
-        index). Stops cleanly at the lock's own end-of-list response.
-        Raises `TTLockError` if the lock never sends it within
+        Follows the lock's own list cursor, one BLE round-trip per
+        fingerprint, over a single connection and a single admin
+        handshake - matching how the official app itself was observed
+        doing it (no reconnect per entry). The first query sends position
+        0; each reply carries the position of its entry, which is sent
+        back as the next query, and the lock answers with the next entry
+        after it. Positions are not consecutive: they skip deleted slots,
+        so counting 0, 1, 2, ... lists the entry after a gap twice. Stops
+        cleanly at the lock's own end-of-list response, or when a reply's
+        position does not advance (a repeat of an entry already listed).
+        Raises `TTLockError` if neither happens within
         `_MAX_FINGERPRINT_ENTRIES` queries, rather than silently
         returning a possibly-incomplete list.
 
@@ -558,24 +564,31 @@ class TTLockClient:
 
         Both the empty-list case and a real multi-entry result are
         confirmed on hardware - see
-        `commands.fingerprint.parse_fingerprint_list_response` for how.
+        `commands.fingerprint.parse_fingerprint_list_page` for how. The
+        position-as-cursor behaviour, with a deleted middle slot, is
+        confirmed on SN478_PV53.
         """
         async with self._command_lock:
             await self._admin_handshake()
             entries: list[FingerprintEntry] = []
-            for index in range(_MAX_FINGERPRINT_ENTRIES):
+            position = 0
+            for _ in range(_MAX_FINGERPRINT_ENTRIES):
                 resp = await self._transport.exchange(
-                    self._frame(cmd.CMD_MANAGE_FINGERPRINT, cmd.payload_fingerprint_list(index))
+                    self._frame(cmd.CMD_MANAGE_FINGERPRINT, cmd.payload_fingerprint_list(position))
                 )
                 plain = self._decrypt_response(resp, "get_fingerprints")
                 log.debug("fingerprint list response plaintext: %s", plain.hex())
                 try:
-                    entry = cmd.parse_fingerprint_list_response(plain)
+                    page = cmd.parse_fingerprint_list_page(plain)
                 except (RuntimeError, ValueError) as error:
                     raise TTLockError(f"Failed to get_fingerprints: {error}") from error
-                if entry is None:
+                if page is None:
+                    break
+                entry, reply_position = page
+                if reply_position <= position:
                     break
                 entries.append(entry)
+                position = reply_position
             else:
                 raise TTLockError(
                     f"Failed to get_fingerprints: exceeded safety cap of "

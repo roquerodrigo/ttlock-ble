@@ -32,17 +32,31 @@ _END_OF_LIST_DATA_LENGTH = 4
 _END_OF_LIST_TAIL = bytes([_LIST_OPERATION, 0xFF, 0xFF])
 
 
-def payload_fingerprint_list(index: int) -> bytes:
-    """Build the CMD 0x06 sub-op 0x06 payload for one indexed fingerprint query.
+def payload_fingerprint_list(position: int) -> bytes:
+    """Build the CMD 0x06 sub-op 0x06 payload for one fingerprint list query.
 
-    `index` starts at 0 and increments by 1 per call - each call returns
-    at most one enrolled fingerprint, or the end-of-list response.
+    `position` is a cursor, not an index: start at 0, then pass back the
+    position the previous reply carried. The lock answers with the next
+    enrolled fingerprint after that position - or the end-of-list response
+    - so positions skip over deleted slots.
     """
-    return bytes([_LIST_OPERATION]) + index.to_bytes(2, "big")
+    return bytes([_LIST_OPERATION]) + position.to_bytes(2, "big")
 
 
 def parse_fingerprint_list_response(plaintext: bytes) -> FingerprintEntry | None:
     """Decode one CMD 0x06/0x06 response. Returns `None` at the end-of-list marker.
+
+    Same as `parse_fingerprint_list_page`, minus the position.
+    """
+    page = parse_fingerprint_list_page(plaintext)
+    return None if page is None else page[0]
+
+
+def parse_fingerprint_list_page(plaintext: bytes) -> tuple[FingerprintEntry, int] | None:
+    """Decode one CMD 0x06/0x06 response into `(entry, position)`.
+
+    Returns `None` at the end-of-list marker. `position` is the cursor to
+    send as the next request (see `payload_fingerprint_list`).
 
     Raises `RuntimeError` on a FAILED status, matching
     `parse_check_user_time_response`; a confirmed 0x1A error code
@@ -57,7 +71,8 @@ def parse_fingerprint_list_response(plaintext: bytes) -> FingerprintEntry | None
 
         [0]     battery percentage - not exposed on `FingerprintEntry`
         [1]     op_echo (always 0x06)
-        [2:4]   position (index + 1) - discarded; not a total count
+        [2:4]   position - the cursor for the next query; not an index
+                and not a total count (it skips deleted slots)
         [4:8]   fingerprint_id
         [8:10]  slot
         [10:15] start_date (5-byte decimal date)
@@ -75,9 +90,10 @@ def parse_fingerprint_list_response(plaintext: bytes) -> FingerprintEntry | None
         raise ValueError(f"fingerprint list payload too short: {plaintext.hex()}")
     start_date_raw = data[10:15]
     end_date_raw = data[15:20]
-    return FingerprintEntry(
+    entry = FingerprintEntry(
         fingerprint_id=data[4:8],
         slot=int.from_bytes(data[8:10], "big"),
         start_date=None if start_date_raw == START_DATE_SENTINEL else decode_date5(start_date_raw),
         end_date=None if end_date_raw == END_DATE_SENTINEL else decode_date5(end_date_raw),
     )
+    return entry, int.from_bytes(data[2:4], "big")
