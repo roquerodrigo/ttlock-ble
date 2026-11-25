@@ -24,7 +24,7 @@ class AdminChannel:
     `TTLockClient` builds one around its own command lock, admin handshake
     and command helpers, so a manager can run commands and check features
     but cannot reach the transport, the AES key or the event listeners.
-    Every call except `session` must run inside `session`.
+    Every other call must run inside `session` or `reopened_session`.
     """
 
     def __init__(  # noqa: PLR0913 -- one collaborator per capability the managers get
@@ -50,6 +50,13 @@ class AdminChannel:
         """Hold the client's command lock and authorize as admin for the block's duration."""
         async with self._command_lock:
             await self._authorize()
+            yield
+
+    @contextlib.asynccontextmanager
+    async def reopened_session(self) -> AsyncIterator[None]:
+        """Like `session`, on a fresh link: for a lock that dropped the old one."""
+        async with self._command_lock:
+            await self._reopen()
             yield
 
     async def command(
