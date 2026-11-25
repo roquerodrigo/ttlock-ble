@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import datetime as dt
 import logging
@@ -14,6 +15,8 @@ from ..exceptions import (
     CardAlreadyEnrolledError,
     CardPresentedLateError,
     EnrollmentTimeoutError,
+    LinkLostError,
+    LockRejectedError,
     ReplyTimeoutError,
     TTLockError,
     UnsupportedFeatureError,
@@ -45,6 +48,14 @@ DEFAULT_ENROLL_TIMEOUT = 30.0
 # after the command was enrolled, one at 20 s was rejected. Other models: not
 # tested. `enroll` keeps listening this long, counted from the command.
 ENROLL_SAFETY_WINDOW = 30.0
+
+
+class _LinkDroppedInAddMode(Exception):  # noqa: N818 -- a private signal, never raised to callers
+    """The lock dropped the link after entering add mode; the link was already reopened."""
+
+    def __init__(self, started: float) -> None:
+        super().__init__()
+        self.started = started
 
 
 class CardManager:
@@ -110,34 +121,37 @@ class CardManager:
         `CYCLIC_IC_OR_FINGER_PRINT` no card can have windows, so none are
         read and every entry gets an empty tuple.
         """
-        entries: list[CardEntry] = []
         async with self._channel.session():
-            position = 0
-            for _ in range(_MAX_CARD_ENTRIES):
-                plain = await self._channel.query(
-                    cmd.CMD_MANAGE_IC_CARD, cmd.payload_card_list(position), "get_cards"
-                )
-                log.debug("card list response: length=%d", len(plain))
-                try:
-                    page = cmd.parse_card_list_page(plain)
-                except (RuntimeError, ValueError) as error:
-                    raise TTLockError(f"Failed to get_cards: {error}") from None
-                if page is None:
-                    break
-                entry, reply_position = page
-                if reply_position <= position:
-                    break
-                entries.append(entry)
-                position = reply_position
-            else:
-                raise TTLockError(
-                    f"Failed to get_cards: exceeded safety cap of "
-                    f"{_MAX_CARD_ENTRIES} entries without an end-of-list response"
-                )
+            entries = await self._read_entries()
         log.info("fetched %d card(s)", len(entries))
         if include_weekly_windows:
             return [*await self._with_weekly_windows(entries)]
-        return entries
+        return [*entries]
+
+    async def _read_entries(self) -> Sequence[CardEntry]:
+        """Follow the lock's list cursor inside the caller's session; see `list`."""
+        entries: list[CardEntry] = []
+        position = 0
+        for _ in range(_MAX_CARD_ENTRIES):
+            plain = await self._channel.query(
+                cmd.CMD_MANAGE_IC_CARD, cmd.payload_card_list(position), "get_cards"
+            )
+            log.debug("card list response: length=%d", len(plain))
+            try:
+                page = cmd.parse_card_list_page(plain)
+            except (RuntimeError, ValueError) as error:
+                raise TTLockError(f"Failed to get_cards: {error}") from None
+            if page is None:
+                return entries
+            entry, reply_position = page
+            if reply_position <= position:
+                return entries
+            entries.append(entry)
+            position = reply_position
+        raise TTLockError(
+            f"Failed to get_cards: exceeded safety cap of "
+            f"{_MAX_CARD_ENTRIES} entries without an end-of-list response"
+        )
 
     async def enroll(
         self,
@@ -172,6 +186,17 @@ class CardManager:
           once and `CardPresentedLateError` says so, and whether the delete
           worked. Do not call that a success.
 
+        An SN534 lock (firmware 6.5.20) drops the BLE link about 21 s into
+        an unanswered enrollment, most likely as it leaves add mode, and
+        nothing it does in that gap can be heard. So a drop after the lock
+        asked for the card ends the wait: once the window has passed, the
+        link is reopened and the cards are read again at once, and any card
+        that was not there before is deleted and reported with
+        `CardPresentedLateError`; with none, `EnrollmentTimeoutError`. The
+        client is connected afterwards, unless that check failed, which
+        `EnrollmentTimeoutError` reports. `disconnected_callback` fires for
+        the drop but not for the reopened link.
+
         A permanent card needs nothing more. Otherwise its validity is
         applied right after the tap, as the official app does: `Period` and
         `Weekly` send their dates (an unbounded `Weekly` sends those of a
@@ -203,14 +228,21 @@ class CardManager:
         cmd.check_card_validity(validity)
         held = {entry.card_id: entry for entry in await self.list()}
         failure: TTLockError | None = None
-        async with self._channel.session():
-            await self._require_cards("enroll_card", validity)
-            credential, late = await self._wait_for_card(on_progress, timeout)
-            previous = held.get(credential.identifier)
-            if previous is None and late:
-                raise await self._remove_late_card(credential, timeout)
-            if previous is None and not isinstance(validity, Permanent):
-                failure = await self._try(self._apply_dates(credential, validity, "enroll_card"))
+        try:
+            async with self._channel.session():
+                await self._require_cards("enroll_card", validity)
+                credential, late = await self._wait_for_card(on_progress, timeout)
+                previous = held.get(credential.identifier)
+                if previous is None and late:
+                    raise await self._remove_late_card(credential, timeout)
+                if previous is None and not isinstance(validity, Permanent):
+                    failure = await self._try(
+                        self._apply_dates(credential, validity, "enroll_card")
+                    )
+        except _LinkDroppedInAddMode as dropped:
+            raise await self._check_after_link_drop(held, dropped.started, timeout) from (
+                dropped.__cause__
+            )
         if previous is not None:
             raise await self._restore(credential, previous, late=late)
         if failure is None and isinstance(validity, Weekly):
@@ -259,6 +291,11 @@ class CardManager:
                 on_reply=on_reply,
                 timeout=max(timeout, ENROLL_SAFETY_WINDOW),
             )
+        except LinkLostError as error:
+            if not waiting:
+                raise
+            log.info("lock dropped the link in add mode")
+            raise _LinkDroppedInAddMode(started) from error
         except ReplyTimeoutError as error:
             if not waiting:
                 raise
@@ -291,6 +328,60 @@ class CardManager:
             f"Failed to enroll_card: a card the lock already held was presented {when}and the "
             "lock reset it; its previous dates and weekly windows were restored",
             restored=True,
+        )
+
+    async def _check_after_link_drop(
+        self,
+        held: dict[bytes, CardEntry],
+        started: float,
+        timeout: float,  # noqa: ASYNC109 -- only reported
+    ) -> TTLockError:
+        """Reconnect, then find and delete any card enrolled while the link was down.
+
+        Waits until `ENROLL_SAFETY_WINDOW` has passed since the command before
+        reconnecting, so the lock has left add mode, and then reads the cards
+        on the new link straight away: the lock drops a link that stays idle
+        for a few seconds.
+        """
+        remaining = started + ENROLL_SAFETY_WINDOW - time.monotonic()
+        if remaining > 0:
+            await asyncio.sleep(remaining)
+        removed = True
+        try:
+            async with self._channel.reopened_session():
+                listed = await self._read_entries()
+                arrived = [entry.card_id for entry in listed if entry.card_id not in held]
+                for card_id in arrived:
+                    try:
+                        await self._channel.command(
+                            cmd.CMD_MANAGE_IC_CARD, cmd.payload_card_delete(card_id), "delete_card"
+                        )
+                    except LockRejectedError:
+                        removed = False
+        except TTLockError as error:
+            return EnrollmentTimeoutError(
+                "Failed to enroll_card: the lock dropped the link while waiting for a card, and "
+                f"checking the cards afterwards failed ({error}); a card presented meanwhile may "
+                "have been enrolled as permanent - reconnect and list the cards"
+            )
+        if not arrived:
+            return EnrollmentTimeoutError(
+                f"Failed to enroll_card: no card was presented within {timeout:g} s; the lock "
+                "dropped the link when it left add mode"
+            )
+        if not removed:
+            log.warning("card enrolled while the link was down could not be removed")
+            return CardPresentedLateError(
+                "Failed to enroll_card: a card was enrolled as permanent while the lock had "
+                "dropped the link, and deleting it failed; it may still open the lock - list "
+                "the cards and delete it",
+                removed=False,
+            )
+        log.warning("card enrolled while the link was down removed")
+        return CardPresentedLateError(
+            "Failed to enroll_card: a card was enrolled while the lock had dropped the link, "
+            "and was removed again",
+            removed=True,
         )
 
     async def _remove_late_card(self, credential: Credential, timeout: float) -> TTLockError:  # noqa: ASYNC109 -- only reported

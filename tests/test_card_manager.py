@@ -10,7 +10,9 @@ import traceback
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from bleak.exc import BleakError
 
+import ttlock_ble.ble.transport as transport_mod
 import ttlock_ble.credentials.card_manager as card_manager_mod
 from tests.conftest import make_virtual_key
 from tests.test_card_commands import FIRST_CARD, OPERATIONS, SECOND_CARD
@@ -24,6 +26,7 @@ from ttlock_ble import (
     CredentialAlreadyExistsError,
     CredentialNotFoundError,
     EnrollmentTimeoutError,
+    LinkLostError,
     LockFeature,
     Period,
     Permanent,
@@ -342,7 +345,12 @@ class TestEnroll:
         self, patched_connect
     ) -> None:
         client, fake = await _connected(patched_connect)
-        fake.reply_for_next = [*_admin(client), *_replies(client, _features(LockFeature.IC)), []]
+        fake.reply_for_next = [
+            *_listing(client),
+            *_admin(client),
+            *_replies(client, _features(LockFeature.IC)),
+            [],
+        ]
         with pytest.raises(ReplyTimeoutError) as raised:
             await client.cards.enroll(timeout=0.05)
         assert not isinstance(raised.value, EnrollmentTimeoutError)
@@ -914,6 +922,143 @@ class TestDeleteAndClear:
         ]
         await client.cards.delete(Credential.of(listed))
         assert _card_commands(client, fake) == [bytes([3]) + eight]
+
+
+def _reopen_and_list(*entries: bytes):
+    """The fresh link's replies: the handshake of the reopen, then the cards read again."""
+    return lambda client: [*_admin(client), *_replies(client, *entries, _end_plain())]
+
+
+class TestEnrollLinkDrop:
+    """An SN534 lock drops the link about 21 s into an unanswered enrollment."""
+
+    async def _run(
+        self,
+        patched_connect,
+        after_drop,
+        *,
+        held: tuple[bytes, ...] = (),
+        on_drop=None,
+    ) -> tuple[TTLockClient, FakeBleakClient, FakeBleakClient, BaseException, float]:
+        client, fake = await _connected(patched_connect)
+        client.weekly_schedules.get = AsyncMock(return_value=())
+        fake.reply_for_next = [
+            *_listing(client, *held),
+            *_admin(client),
+            *_replies(client, _features(LockFeature.IC)),
+            _replies(client, _plain("enroll by tap, no card presented", 0)),
+        ]
+        fresh = FakeBleakClient(client.key)
+        fresh.reply_for_next = after_drop(client)
+
+        def drop() -> None:
+            patched_connect(fresh)
+            if on_drop is not None:
+                on_drop(client)
+            fake.is_connected = False
+            client._transport._on_disconnected(fake)
+
+        loop = asyncio.get_running_loop()
+        started = time.monotonic()
+        with pytest.raises(TTLockError) as raised:
+            await client.cards.enroll(on_progress=lambda _step: loop.call_soon(drop), timeout=5)
+        return client, fake, fresh, raised.value, time.monotonic() - started
+
+    async def test_no_new_card_is_a_timeout_on_a_reopened_link(self, patched_connect) -> None:
+        client, _fake, fresh, error, elapsed = await self._run(patched_connect, _reopen_and_list())
+        assert isinstance(error, EnrollmentTimeoutError)
+        assert "dropped the link when it left add mode" in str(error)
+        assert isinstance(error.__cause__, LinkLostError)
+        assert client._transport._client is fresh
+        assert fresh.reply_for_next == []
+        assert _card_commands(client, fresh) == []
+        assert 0.3 <= elapsed < 5
+
+    async def test_a_card_enrolled_while_the_link_was_down_is_deleted(
+        self, patched_connect
+    ) -> None:
+        client, _fake, fresh, error, _elapsed = await self._run(
+            patched_connect,
+            lambda client: [
+                *_reopen_and_list(_entry_plain(FIRST_CARD, 1))(client),
+                *_replies(client, _plain("delete one card", 0)),
+            ],
+        )
+        assert isinstance(error, CardPresentedLateError)
+        assert error.removed
+        assert "was removed again" in str(error)
+        assert _card_commands(client, fresh) == [bytes([3]) + FIRST_CARD]
+        assert fresh.reply_for_next == []
+
+    async def test_a_card_that_cannot_be_deleted_says_it_may_still_work(
+        self, patched_connect
+    ) -> None:
+        _client, _fake, _fresh, error, _elapsed = await self._run(
+            patched_connect,
+            lambda client: [
+                *_reopen_and_list(_entry_plain(FIRST_CARD, 1))(client),
+                *_replies(client, _refusal(cmd.CMD_MANAGE_IC_CARD, 0x18)),
+            ],
+        )
+        assert isinstance(error, CardPresentedLateError)
+        assert not error.removed
+        assert "may still open the lock" in str(error)
+        assert FIRST_CARD.hex() not in str(error)
+
+    async def test_a_card_held_before_is_never_deleted(self, patched_connect) -> None:
+        client, _fake, fresh, error, _elapsed = await self._run(
+            patched_connect,
+            _reopen_and_list(_entry_plain(SECOND_CARD, 1)),
+            held=(_entry_plain(SECOND_CARD, 1),),
+        )
+        assert isinstance(error, EnrollmentTimeoutError)
+        assert _card_commands(client, fresh) == []
+
+    async def test_a_failed_reconnect_says_the_cards_were_not_checked(
+        self, patched_connect, monkeypatch
+    ) -> None:
+        async def _refuse(*_args: object, **_kwargs: object) -> None:
+            raise BleakError("out of slots")
+
+        def refuse_connections(_client: TTLockClient) -> None:
+            monkeypatch.setattr(transport_mod, "establish_connection", _refuse)
+
+        _client, _fake, _fresh, error, elapsed = await self._run(
+            patched_connect, lambda _client: [], on_drop=refuse_connections
+        )
+        assert isinstance(error, EnrollmentTimeoutError)
+        assert "checking the cards afterwards failed" in str(error)
+        assert "out of slots" in str(error)
+        assert "reconnect and list the cards" in str(error)
+        assert elapsed >= 0.3
+
+    async def test_an_unreadable_listing_says_the_cards_were_not_checked(
+        self, patched_connect
+    ) -> None:
+        _client, _fake, _fresh, error, _elapsed = await self._run(
+            patched_connect,
+            lambda client: [*_admin(client), *_replies(client, bytes([cmd.CMD_MANAGE_IC_CARD]))],
+        )
+        assert isinstance(error, EnrollmentTimeoutError)
+        assert "checking the cards afterwards failed (Failed to get_cards" in str(error)
+
+    async def test_a_drop_before_add_mode_is_a_plain_link_loss(self, patched_connect) -> None:
+        client, fake = await _connected(patched_connect)
+        fake.reply_for_next = [
+            *_listing(client),
+            *_admin(client),
+            *_replies(client, _features(LockFeature.IC)),
+            [],
+        ]
+
+        def drop() -> None:
+            fake.is_connected = False
+            client._transport._on_disconnected(fake)
+
+        asyncio.get_running_loop().call_later(0.05, drop)
+        with pytest.raises(LinkLostError) as raised:
+            await client.cards.enroll(timeout=5)
+        assert not isinstance(raised.value, EnrollmentTimeoutError)
 
 
 def _entry_plain(
