@@ -40,7 +40,7 @@ from ttlock_ble.ble.constants import (
 )
 from ttlock_ble.constants import KeyboardPwdType, LockFeature
 from ttlock_ble.crypto import aes_decrypt, aes_encrypt, hex_key_to_bytes
-from ttlock_ble.exceptions import TTLockError
+from ttlock_ble.exceptions import LinkLostError, ReplyTimeoutError, TTLockError
 from ttlock_ble.protocol import Frame, FrameReassembler
 
 if TYPE_CHECKING:
@@ -307,6 +307,64 @@ class TestDisconnect:
         assert dropped.disconnected
         assert client._transport._client is fresh
         assert not fresh.disconnected
+
+
+class TestLinkLoss:
+    async def _connected(self, patched_connect, callback=None):
+        key = make_virtual_key()
+        client = TTLockClient(
+            key, device=MagicMock(), keep_alive_after_command=0, disconnected_callback=callback
+        )
+        fake = FakeBleakClient(key)
+        patched_connect(fake)
+        await client.connect()
+        return client, fake
+
+    @staticmethod
+    def _drop(client: TTLockClient, fake: FakeBleakClient) -> None:
+        fake.is_connected = False
+        client._transport._on_disconnected(fake)
+
+    async def test_a_drop_while_waiting_fails_the_command_at_once(self, patched_connect) -> None:
+        callback = MagicMock()
+        client, fake = await self._connected(patched_connect, callback)
+        fake.reply_for_next = [[]]
+        asyncio.get_running_loop().call_later(0.05, self._drop, client, fake)
+        started = asyncio.get_running_loop().time()
+        with pytest.raises(LinkLostError, match=r"command 0x14: the lock dropped the BLE link"):
+            await client.query_state()
+        assert asyncio.get_running_loop().time() - started < 1
+        callback.assert_called_once_with(fake)
+
+    async def test_the_drop_is_a_reply_timeout_for_existing_handlers(self, patched_connect) -> None:
+        client, fake = await self._connected(patched_connect)
+        fake.reply_for_next = [[]]
+        asyncio.get_running_loop().call_later(0.05, self._drop, client, fake)
+        with pytest.raises(ReplyTimeoutError):
+            await client.query_state()
+
+    async def test_a_drop_between_commands_leaves_nothing_behind(self, patched_connect) -> None:
+        client, fake = await self._connected(patched_connect)
+        self._drop(client, fake)
+        assert client._transport._inbox.empty()
+
+    async def test_a_replaced_link_closing_is_not_a_drop(self, patched_connect) -> None:
+        client, fake = await self._connected(patched_connect)
+        client._transport._replaced_clients.add(fake)
+        client._transport._waiting_for_response = 1
+        client._transport._on_disconnected(fake)
+        assert client._transport._inbox.empty()
+
+    async def test_a_new_link_starts_without_stale_frames(self, patched_connect) -> None:
+        client, fake = await self._connected(patched_connect)
+        client._transport._inbox.put_nowait(None)
+        client._transport._reassembler.feed(b"\x7f\x05")
+        fake.is_connected = False
+        fresh = FakeBleakClient(client.key)
+        patched_connect(fresh)
+        await client.connect()
+        assert client._transport._inbox.empty()
+        assert client._transport._reassembler.feed(b"") == []
 
 
 class TestCommands:

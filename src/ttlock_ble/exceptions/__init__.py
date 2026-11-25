@@ -9,6 +9,7 @@ from .credential_already_exists import CredentialAlreadyExistsError
 from .credential_not_found import CredentialNotFoundError
 from .enrollment_timeout import EnrollmentTimeoutError
 from .fingerprint_enrolled_late import FingerprintEnrolledLateError
+from .link_lost import LinkLostError
 from .lock_rejected import LockRejectedError
 from .rejection import rejection_error
 from .reply_timeout import ReplyTimeoutError
@@ -24,6 +25,7 @@ __all__ = [
     "CredentialNotFoundError",
     "EnrollmentTimeoutError",
     "FingerprintEnrolledLateError",
+    "LinkLostError",
     "LockRejectedError",
     "ReplyTimeoutError",
     "StorageFullError",

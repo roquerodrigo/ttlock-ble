@@ -34,6 +34,7 @@ Public API:
                       — the refusals a credential command can map to
     UnsupportedFeatureError — the lock's feature mask lacks what a command needs
     ReplyTimeoutError — the lock did not answer a command in time
+    LinkLostError     — the lock dropped the BLE link before answering a command
     EnrollmentTimeoutError — no card or finger was presented while the lock waited for one
     CardPresentedLateError — a card was tapped after the timeout and was removed again
     FingerprintEnrolledLateError — a finger completed enrollment after the timeout and was removed
@@ -79,6 +80,7 @@ from .exceptions import (
     CredentialNotFoundError,
     EnrollmentTimeoutError,
     FingerprintEnrolledLateError,
+    LinkLostError,
     LockRejectedError,
     ReplyTimeoutError,
     StorageFullError,
@@ -140,6 +142,7 @@ __all__ = [
     "FingerprintEntry",
     "FingerprintManager",
     "KeyboardPwdType",
+    "LinkLostError",
     "LockAdvertisement",
     "LockErrorCode",
     "LockEvent",

@@ -12,6 +12,7 @@ from ..constants import CredentialType, FingerprintEnrollmentStep, LockFeature
 from ..exceptions import (
     EnrollmentTimeoutError,
     FingerprintEnrolledLateError,
+    LinkLostError,
     LockRejectedError,
     ReplyTimeoutError,
     TTLockError,
@@ -185,8 +186,11 @@ class FingerprintManager:
         A link that stays silent for `LOCK_REPLY_TIMEOUT` after the lock was
         ready raises `EnrollmentTimeoutError` (before that, a plain
         `ReplyTimeoutError`); the lock may still be in add mode and enroll a
-        finger. Cancelling the call or dropping the link before the lock's
-        answer is not tested for the same reason.
+        finger. A link the lock drops after it was ready raises
+        `EnrollmentTimeoutError` at once and leaves the client disconnected;
+        a finger completed in that gap may be enrolled, so list the
+        fingerprints after reconnecting. Neither case is tested on hardware,
+        nor is cancelling the call before the lock's answer.
 
         A permanent fingerprint needs nothing more. Otherwise its validity is
         applied right after the last touch, as the official app does: `Period`
@@ -283,10 +287,7 @@ class FingerprintManager:
         except ReplyTimeoutError as error:
             if not waiting:
                 raise
-            raise EnrollmentTimeoutError(
-                "Failed to enroll_fingerprint: no reply from the lock within "
-                f"{LOCK_REPLY_TIMEOUT:g} s; it may still be in add mode"
-            ) from error
+            raise _unanswered_enrollment(error) from error
         log.info("fingerprint enrolled")
         return Credential(CredentialType.FINGERPRINT, fingerprint_id), required, late
 
@@ -429,3 +430,16 @@ def _fingerprint_id(fingerprint: Credential) -> bytes:
     if fingerprint.credential_type != CredentialType.FINGERPRINT:
         raise ValueError("expected a fingerprint credential")
     return fingerprint.identifier
+
+
+def _unanswered_enrollment(error: ReplyTimeoutError) -> EnrollmentTimeoutError:
+    if isinstance(error, LinkLostError):
+        return EnrollmentTimeoutError(
+            "Failed to enroll_fingerprint: the lock dropped the link during enrollment; a "
+            "finger completed meanwhile may have been enrolled - reconnect and list the "
+            "fingerprints"
+        )
+    return EnrollmentTimeoutError(
+        "Failed to enroll_fingerprint: no reply from the lock within "
+        f"{LOCK_REPLY_TIMEOUT:g} s; it may still be in add mode"
+    )
