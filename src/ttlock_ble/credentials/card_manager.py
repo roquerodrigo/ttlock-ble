@@ -98,8 +98,8 @@ class CardManager:
         card after a gap twice (confirmed on SN484_PV53). Stops at the
         lock's end-of-list reply, or when a reply's position does not
         advance (a repeat of a card already listed); raises `TTLockError`
-        if neither happens within `_MAX_CARD_ENTRIES` queries. Not gated on a feature, so it keeps
-        working on locks whose mask omits `IC`.
+        if neither happens within `_MAX_CARD_ENTRIES` queries. Not gated
+        on a feature, so it keeps working on locks whose mask omits `IC`.
 
         With `include_weekly_windows` each entry's `weekly_windows` holds
         what `WeeklyScheduleManager.get` reads. A card without windows gets
