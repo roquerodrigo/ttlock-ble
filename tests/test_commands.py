@@ -282,6 +282,18 @@ class TestFingerprintList:
         plain = bytes([0x06, cmd.RESPONSE_SUCCESS, 0x00, 0x06, 0xFF, 0xFF])
         assert cmd.parse_fingerprint_list_response(plain) is None
 
+    def test_page_reports_the_position_not_the_index(self) -> None:
+        # Captured on SN478_PV53 after deleting the middle of three slots.
+        plain = bytes.fromhex("0601640600033299e8a2000200010100006301010000")
+        page = cmd.parse_fingerprint_list_page(plain)
+        assert page is not None
+        entry, position = page
+        assert position == 3
+        assert entry.fingerprint_id == bytes.fromhex("3299e8a2")
+
+    def test_page_end_of_list_returns_none(self) -> None:
+        assert cmd.parse_fingerprint_list_page(bytes.fromhex("06016406ffff")) is None
+
     def test_permanent_entry_with_explicit_start(self) -> None:
         plain = _fingerprint_response(
             position=1,
