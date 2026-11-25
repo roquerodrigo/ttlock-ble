@@ -24,6 +24,7 @@ from ttlock_ble import (
     FingerprintEnrollmentProgress,
     FingerprintEnrollmentStep,
     FingerprintEntry,
+    LinkLostError,
     LockFeature,
     LockRejectedError,
     Period,
@@ -361,6 +362,27 @@ class TestEnroll:
         with pytest.raises(EnrollmentTimeoutError, match=r"within 0\.3 s.*still be in add mode"):
             await client.fingerprints.enroll(timeout=0.05)
         assert time.monotonic() - started >= 0.3
+
+    async def test_a_link_dropped_after_ready_ends_the_wait_at_once(self, patched_connect) -> None:
+        client, fake = await _connected(patched_connect)
+        fake.reply_for_next = [
+            *_admin(client),
+            *_replies(client, _features(LockFeature.FINGER_PRINT)),
+            _replies(client, _plain(_NO_FINGER, 0)),
+        ]
+
+        def drop() -> None:
+            fake.is_connected = False
+            client._transport._on_disconnected(fake)
+
+        loop = asyncio.get_running_loop()
+        started = time.monotonic()
+        with pytest.raises(EnrollmentTimeoutError, match="dropped the link") as raised:
+            await client.fingerprints.enroll(
+                on_progress=lambda _progress: loop.call_soon(drop), timeout=0.05
+            )
+        assert time.monotonic() - started < _SHORT_REPLY_TIMEOUT
+        assert isinstance(raised.value.__cause__, LinkLostError)
 
     async def test_a_lock_that_never_answers_is_a_plain_reply_timeout(
         self, patched_connect

@@ -40,6 +40,7 @@ EXPECTED_EXPORTS = frozenset(
         "DeviceProperties",
         "EnrollmentTimeoutError",
         "KeyboardPwdType",
+        "LinkLostError",
         "LockAdvertisement",
         "LockErrorCode",
         "LockFeature",

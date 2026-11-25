@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from bleak.exc import BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
-from ..exceptions import ReplyTimeoutError, TTLockError
+from ..exceptions import LinkLostError, ReplyTimeoutError, TTLockError
 from ..protocol import FrameReassembler
 from .constants import (
     BLE_WRITE_CHUNK,
@@ -77,7 +77,8 @@ class BleTransport:
         self._write_char: BleakGATTCharacteristic | None = None
         self._notify_char: BleakGATTCharacteristic | None = None
         self._reassembler = FrameReassembler()
-        self._inbox: asyncio.Queue[Frame] = asyncio.Queue()
+        # `None` marks a link that dropped while a command was waiting for its reply.
+        self._inbox: asyncio.Queue[Frame | None] = asyncio.Queue()
         self._waiting_for_response = 0
         self._replaced_clients: weakref.WeakSet[BleakClient] = weakref.WeakSet()
 
@@ -97,11 +98,16 @@ class BleTransport:
         The link is ready for a command the moment the notify subscription
         is acknowledged: the vendor app writes that descriptor and sends
         its first command straight away, with no pause and no GATT read in
-        between, so none is spent here either.
+        between, so none is spent here either. Whatever a previous link
+        left half-received is dropped, so it cannot be mistaken for, or
+        glued to, a reply on the new one.
         """
         if self.is_connected:
             return
         await self.disconnect()
+        self._reassembler = FrameReassembler()
+        while not self._inbox.empty():
+            self._inbox.get_nowait()
         if self.device is None:
             self.device = await find_lock_device(self.address, self.scan_timeout)
         if self.device is None:
@@ -144,9 +150,6 @@ class BleTransport:
         except Exception:  # the old link is being discarded whatever it raises
             log.debug("Teardown before reconnect failed; ignoring", exc_info=True)
             self._client = None
-        self._reassembler = FrameReassembler()
-        while not self._inbox.empty():
-            self._inbox.get_nowait()
         await self.connect()
 
     async def disconnect(self) -> None:
@@ -193,6 +196,9 @@ class BleTransport:
         reply and returns True for the final one; every earlier reply
         restarts the deadline, since the lock is proving it is still at
         work. Without `until`, the first reply is final.
+
+        A link the lock drops during the wait raises `LinkLostError` at
+        once, rather than `ReplyTimeoutError` at the deadline.
         """
         # Inbox-vs-push routing in `_on_notify` keys off this flag, so
         # increment around the entire send-then-receive window.
@@ -213,6 +219,11 @@ class BleTransport:
                     candidate = await asyncio.wait_for(self._inbox.get(), timeout=remaining)
                 except TimeoutError as exc:
                     raise ReplyTimeoutError(msg) from exc
+                if candidate is None:
+                    raise LinkLostError(
+                        f"Failed to get a reply to command 0x{frame.command:02x}: "
+                        "the lock dropped the BLE link"
+                    )
                 if self._is_response(candidate, frame.command):
                     if until is None or until(candidate):
                         return candidate
@@ -292,6 +303,8 @@ class BleTransport:
         if client in self._replaced_clients:
             log.debug("Replaced link to %s closed", self.address)
             return
+        if self._waiting_for_response > 0:
+            self._inbox.put_nowait(None)
         if self.disconnected_callback is not None:
             self.disconnected_callback(client)
 
