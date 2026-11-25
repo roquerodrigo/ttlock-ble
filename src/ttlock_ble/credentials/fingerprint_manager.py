@@ -66,14 +66,21 @@ class FingerprintManager:
     the 6-byte id, or `Credential.of(entry)` for a listed one; any other kind
     of credential raises `ValueError` before the lock is contacted.
 
-    Confirmed on an SN478_PV53 lock (firmware 6.4.43.240529) and an SN484_PV53
-    lock (firmware 6.5.15.240522), from the official app's captures: enrolling
-    (permanent and dated), changing a fingerprint's dates and deleting one
-    fingerprint. Captured on the SN478_PV53 only: clearing all, the lock's own
-    timeout when no finger is placed, and enrolling a finger that is already
-    enrolled. Not yet run against hardware by this SDK.
+    Run by this SDK on an SN478_PV53 lock (firmware 6.4.43.240529): enrolling
+    (progress and the new id), no finger placed (the lock's own error 0xE4),
+    a finger completing after a 3 s deadline (deleted and reported with
+    `FingerprintEnrolledLateError`; with no finger the call waited for the
+    lock's own error), `modify` to a future `Period` (the finger was rejected),
+    to `Permanent` with the listing dates (the finger was accepted) and to a
+    weekly window (the finger was rejected outside it), deleting one
+    fingerprint, and clearing all. Run on an SN484_PV53 lock (firmware
+    6.5.15.240522): enrolling, deleting one fingerprint and clearing all. The
+    official app's captures of both models match the payloads built here;
+    enrolling a finger that is already enrolled was captured on the SN478_PV53.
 
-    Not tested: other lock models, and dates for `Permanent` in `modify`.
+    Not tested: whether a deleted fingerprint's weekly windows go with it,
+    cancelling the call or dropping the link before the lock's final answer,
+    whether `LOCK_REPLY_TIMEOUT` suffices on slower locks, and other lock models.
     """
 
     def __init__(self, channel: AdminChannel, weekly_schedules: WeeklyScheduleManager) -> None:
@@ -156,9 +163,13 @@ class FingerprintManager:
         it decides what a result means, not how long the conversation lasts.
         The lock keeps add mode open while touches continue and always ends it
         itself, with the "enrolled" push or, about 8.4 s without a touch, an
-        error. Confirmed on SN478_PV53 with `timeout` of 3 s: the call gave up
-        and disconnected, and the lock still completed the enrollment when the
+        error. Confirmed on SN478_PV53 with a client that stopped listening at a
+        3 s timeout: it disconnected, and the lock still completed the enrollment when the
         finger was placed four times afterwards, as a new permanent fingerprint.
+        With the behaviour described here, run on SN478_PV53 with a 3 s
+        deadline, a finger completing afterwards was deleted and reported
+        with `FingerprintEnrolledLateError`, and with no finger the call
+        waited for the lock's own error.
         So the call keeps the connection and keeps reading, and reports
         progress, past `timeout` until the lock ends add mode; each reply is
         waited for at most `LOCK_REPLY_TIMEOUT`, which only guards against a
@@ -312,9 +323,11 @@ class FingerprintManager:
         `Period` sets its dates. `Weekly` sets its dates (an unbounded one
         those of a permanent fingerprint) and then its windows. `Permanent`
         sends the dates the lock lists for a permanent entry, 2000-01-01 00:00
-        to 2099-01-01 00:00 - confirmed for cards, not tested for
-        fingerprints. Any validity but `Weekly` also clears the fingerprint's
-        windows, which is not an error when it has none.
+        to 2099-01-01 00:00; the lock then accepted the finger (SN478_PV53).
+        A `Period` starting in the future rejected it until then, and a
+        `Weekly` window rejected it outside the window (SN478_PV53). Any
+        validity but `Weekly` also clears the fingerprint's windows, which is not an
+        error when it has none.
 
         If writing the windows fails after the dates were changed, the dates
         stay changed and the fingerprint may have fewer windows than asked

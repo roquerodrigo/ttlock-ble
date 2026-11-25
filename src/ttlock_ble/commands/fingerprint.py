@@ -121,8 +121,8 @@ def payload_fingerprint_modify(fingerprint_id: bytes, validity: Validity) -> byt
     Layout `[05][id:6][start][end]`. Captured from the official app for dated
     fingerprints, after an enrollment and when editing one (SN478_PV53,
     SN484_PV53). `Permanent` and an unbounded `Weekly` send the dates the lock
-    lists for a permanent fingerprint, 2000-01-01 00:00 and 2099-01-01 00:00 -
-    confirmed for cards, not tested for fingerprints. Windows of a `Weekly`
+    lists for a permanent fingerprint, 2000-01-01 00:00 and 2099-01-01 00:00;
+    an SN478_PV53 lock accepted the finger afterwards. Windows of a `Weekly`
     validity are not part of this payload. Raises `ValueError` for `SingleUse`
     or an id that is not 6 bytes.
     """
