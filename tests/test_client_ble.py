@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from bleak.exc import BleakError
+from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 
 import ttlock_ble.ble.device_finder as device_finder_mod
 import ttlock_ble.ble.transport as transport_mod
@@ -122,6 +122,7 @@ class FakeBleakClient:
         self.stopped_notify = False
         self.char_values: dict[str, bytes] = {}
         self.missing_chars: set[str] = set()
+        self.unreadable_chars: set[str] = set()
 
     async def start_notify(self, _char: object, cb) -> None:
         self._notify_cb = cb
@@ -132,7 +133,9 @@ class FakeBleakClient:
     async def read_gatt_char(self, uuid: str) -> bytes:
         self.read_uuids.append(uuid)
         if uuid in self.missing_chars:
-            raise RuntimeError(f"characteristic {uuid} not found")
+            raise BleakCharacteristicNotFoundError(uuid)
+        if uuid in self.unreadable_chars:
+            raise BleakError(f"Failed to read characteristic {uuid}")
         return self.char_values.get(uuid, b"\x64")
 
     async def write_gatt_char(self, _char: object, data: bytes, *, response: bool) -> None:  # noqa: ARG002 -- matches bleak's signature; callers pass response= by keyword
@@ -1541,6 +1544,36 @@ class TestDeviceInfo:
         info = await client.get_device_info()
 
         assert info.model is None
+
+    async def test_missing_characteristic_is_logged_without_a_traceback(
+        self, patched_connect, caplog
+    ) -> None:
+        client, fake = await self._connected(patched_connect)
+        fake.missing_chars = {DEVICE_INFO_SERIAL_NUMBER_CHAR}
+
+        with caplog.at_level("DEBUG", logger="ttlock_ble"):
+            info = await client.get_device_info()
+
+        assert info.serial_number is None
+        records = [r for r in caplog.records if DEVICE_INFO_SERIAL_NUMBER_CHAR in r.getMessage()]
+        assert [r.getMessage() for r in records] == [
+            f"GATT characteristic {DEVICE_INFO_SERIAL_NUMBER_CHAR} is not exposed by this lock"
+        ]
+        assert records[0].exc_info is None
+
+    async def test_unreadable_characteristic_keeps_the_traceback(
+        self, patched_connect, caplog
+    ) -> None:
+        client, fake = await self._connected(patched_connect)
+        fake.unreadable_chars = {DEVICE_INFO_MODEL_CHAR}
+
+        with caplog.at_level("DEBUG", logger="ttlock_ble"):
+            info = await client.get_device_info()
+
+        assert info.model is None
+        records = [r for r in caplog.records if DEVICE_INFO_MODEL_CHAR in r.getMessage()]
+        assert len(records) == 1
+        assert records[0].exc_info is not None
 
 
 class TestDeviceFeatures:

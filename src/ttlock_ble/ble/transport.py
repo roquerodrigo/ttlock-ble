@@ -7,7 +7,7 @@ import logging
 import weakref
 from typing import TYPE_CHECKING
 
-from bleak.exc import BleakError
+from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from ..exceptions import LinkLostError, ReplyTimeoutError, TTLockError
@@ -271,6 +271,9 @@ class BleTransport:
         try:
             data = await self._client.read_gatt_char(uuid)
             text = data.decode("utf-8").strip("\x00")
+        except BleakCharacteristicNotFoundError:
+            log.debug("GATT characteristic %s is not exposed by this lock", uuid)
+            return None
         except Exception:
             log.debug("GATT read of %s unavailable", uuid, exc_info=True)
             return None
