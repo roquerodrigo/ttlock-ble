@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.7](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.6...v0.3.7) (2026-11-26)
+
+### Bug fixes
+
+- Connecting to locks that do not expose some Device Information characteristics no longer logs a full traceback for each one; a single debug line is logged instead. ([#133](https://github.com/roquerodrigo/ttlock-ble/pull/133))
+
 ## [0.3.6](https://github.com/roquerodrigo/ttlock-ble/compare/v0.3.5...v0.3.6) (2026-11-25)
 
 Adds full management of keypad passcodes, weekly schedules, IC cards and fingerprints through new client managers and CLI commands, with typed errors and listing fixes.
