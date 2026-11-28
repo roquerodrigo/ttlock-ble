@@ -352,7 +352,7 @@ def unlock(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    asyncio.run(_run_unlock(key))
+    _run_lock_command(_run_unlock(key))
     typer.echo("✓ unlocked")
 
 
@@ -365,7 +365,7 @@ def lock(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    asyncio.run(_run_lock(key))
+    _run_lock_command(_run_lock(key))
     typer.echo("✓ locked")
 
 
@@ -378,7 +378,7 @@ def state(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    s, batt = asyncio.run(_run_state(key))
+    s, batt = _run_lock_command(_run_state(key))
     label = s.name if s is not None else "UNKNOWN"
     state_value = int(s) if s is not None else "?"
     batt_str = f"{batt}%" if batt is not None else "?"
@@ -394,7 +394,7 @@ def battery(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    _s, batt = asyncio.run(_run_state(key))
+    _s, batt = _run_lock_command(_run_state(key))
     if batt is None:
         typer.echo("battery: unknown")
         raise typer.Exit(1)
@@ -413,7 +413,7 @@ def sound(
     if state not in {"on", "off"}:
         raise typer.BadParameter("state must be 'on' or 'off'")
     key = _resolve_key(target)
-    asyncio.run(_run_sound(key, enabled=state == "on"))
+    _run_lock_command(_run_sound(key, enabled=state == "on"))
     typer.echo(f"✓ sound {state}")
 
 
@@ -432,7 +432,7 @@ def volume(
     if level not in LockVolume:
         raise typer.BadParameter(f"level must be {min(LockVolume)}-{max(LockVolume)}")
     key = _resolve_key(target)
-    asyncio.run(_run_volume(key, level))
+    _run_lock_command(_run_volume(key, level))
     typer.echo(f"✓ volume set to {level}")
 
 
@@ -445,7 +445,7 @@ def get_sound(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    sound = asyncio.run(_run_get_sound(key))
+    sound = _run_lock_command(_run_get_sound(key))
     volume = (
         "not reported" if sound.volume is None else f"{int(sound.volume)} ({sound.volume.name})"
     )
@@ -461,7 +461,7 @@ def features(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    device_features = asyncio.run(_run_features(key))
+    device_features = _run_lock_command(_run_features(key))
     typer.echo(
         f"feature value: {device_features.feature_value}  battery: {device_features.battery}%"
     )
@@ -482,7 +482,7 @@ def device_info(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    info = asyncio.run(_run_device_info(key))
+    info = _run_lock_command(_run_device_info(key))
     typer.echo(f"manufacturer:      {info.manufacturer or '?'}")
     typer.echo(f"model:             {info.model or '?'}")
     typer.echo(f"serial number:     {info.serial_number or '?'}")
@@ -500,7 +500,7 @@ def get_device_properties(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    properties = asyncio.run(_run_get_device_properties(key))
+    properties = _run_lock_command(_run_get_device_properties(key))
     typer.echo(f"model variant:     {properties.model_variant}")
     typer.echo(f"hardware revision: {properties.hardware_revision}")
     typer.echo(f"firmware version:  {properties.firmware_version}")
@@ -537,7 +537,7 @@ def add_passcode(
     else:
         _validate(lambda: cmd.payload_passcode_create(code, validity))
     key = _resolve_key(target)
-    asyncio.run(_run_add_passcode(key, code, validity))
+    _run_lock_command(_run_add_passcode(key, code, validity))
     typer.echo(f"✓ passcode {code} added")
 
 
@@ -563,7 +563,7 @@ def modify_passcode(
         raise typer.BadParameter("give --new-code, or --start with --end")
     _validate(lambda: cmd.payload_passcode_modify(code, new_code=new_code, validity=validity))
     key = _resolve_key(target)
-    asyncio.run(_run_modify_passcode(key, code, new_code, validity))
+    _run_lock_command(_run_modify_passcode(key, code, new_code, validity))
     typer.echo(f"✓ passcode {new_code or code} updated")
 
 
@@ -576,7 +576,7 @@ def get_admin_passcode(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    typer.echo(asyncio.run(_run_get_admin_passcode(key)))
+    typer.echo(_run_lock_command(_run_get_admin_passcode(key)))
 
 
 @app.command("set-admin-passcode")
@@ -596,7 +596,7 @@ def set_admin_passcode(
             f"Replace the admin passcode of {key.lockAlias or key.lockMac}?",
             abort=True,
         )
-    asyncio.run(_run_set_admin_passcode(key, code))
+    _run_lock_command(_run_set_admin_passcode(key, code))
     typer.echo("✓ admin passcode updated")
 
 
@@ -611,7 +611,7 @@ def delete_passcode(
         logging.basicConfig(level=logging.DEBUG)
     _validate(lambda: cmd.check_passcode(code))
     key = _resolve_key(target)
-    asyncio.run(_run_delete_passcode(key, code))
+    _run_lock_command(_run_delete_passcode(key, code))
     typer.echo(f"✓ passcode {code} removed")
 
 
@@ -630,7 +630,7 @@ def clear_passcodes(
             f"Wipe every keypad passcode from {key.lockAlias or key.lockMac}?",
             abort=True,
         )
-    asyncio.run(_run_clear_passcodes(key))
+    _run_lock_command(_run_clear_passcodes(key))
     typer.echo("✓ all passcodes cleared")
 
 
@@ -648,7 +648,7 @@ def get_passcodes(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    entries = asyncio.run(_run_get_passcodes(key))
+    entries = _run_lock_command(_run_get_passcodes(key))
     if not entries:
         typer.echo("no passcodes visible to this query")
     for entry in entries:
@@ -683,7 +683,7 @@ def get_auto_lock(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    seconds = asyncio.run(_run_get_auto_lock(key))
+    seconds = _run_lock_command(_run_get_auto_lock(key))
     typer.echo(f"auto-lock: {seconds}s" if seconds >= 0 else "auto-lock: unknown")
 
 
@@ -697,7 +697,7 @@ def set_auto_lock(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    asyncio.run(_run_set_auto_lock(key, seconds))
+    _run_lock_command(_run_set_auto_lock(key, seconds))
     typer.echo(f"✓ auto-lock set to {seconds}s")
 
 
@@ -710,7 +710,7 @@ def get_auto_lock_limits(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    limits = asyncio.run(_run_get_auto_lock_limits(key))
+    limits = _run_lock_command(_run_get_auto_lock_limits(key))
     typer.echo(f"min: {limits.min_allowed}s")
     typer.echo(f"max: {limits.max_allowed}s")
 
@@ -724,7 +724,7 @@ def get_fingerprints(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    entries = asyncio.run(_run_get_fingerprints(key))
+    entries = _run_lock_command(_run_get_fingerprints(key))
     if not entries:
         typer.echo("no fingerprints enrolled")
     for entry in entries:
@@ -740,8 +740,8 @@ _END_HELP = "valid until, lock-local ISO time"
 _DAYS_HELP = "weekly: daily, workdays, weekend, or one day; with --from and --to"
 
 
-def _run_credential_command[T](coroutine: Coroutine[object, object, T]) -> T:
-    """Run a card or fingerprint command; a library error becomes one error line and exit 1."""
+def _run_lock_command[T](coroutine: Coroutine[object, object, T]) -> T:
+    """Run a command that talks to a lock; a library error becomes one error line and exit 1."""
     try:
         return asyncio.run(coroutine)
     except TTLockError as error:
@@ -772,7 +772,7 @@ def enroll_card(
     )
     _validate(lambda: cmd.check_card_validity(validity))
     key = _resolve_key(target)
-    credential = _run_credential_command(_run_enroll_card(key, validity, timeout))
+    credential = _run_lock_command(_run_enroll_card(key, validity, timeout))
     typer.echo(
         f"✓ card enrolled: id {credential.identifier.hex()} (number {credential.card_number})"
     )
@@ -798,7 +798,7 @@ def add_card(
     card = _card_credential(card_id)
     _validate(lambda: cmd.payload_card_add(card.identifier, validity))
     key = _resolve_key(target)
-    _run_credential_command(_run_add_card(key, card, validity))
+    _run_lock_command(_run_add_card(key, card, validity))
     typer.echo(f"✓ card {card_id} added")
 
 
@@ -826,7 +826,7 @@ def modify_card(
     card = _card_credential(card_id)
     _validate(lambda: cmd.payload_card_modify(card.identifier, validity))
     key = _resolve_key(target)
-    _run_credential_command(_run_modify_card(key, card, validity))
+    _run_lock_command(_run_modify_card(key, card, validity))
     typer.echo(f"✓ card {card_id} updated")
 
 
@@ -844,7 +844,7 @@ def delete_card(
     key = _resolve_key(target)
     if not yes:
         typer.confirm(f"Remove card {card_id} from {key.lockAlias or key.lockMac}?", abort=True)
-    _run_credential_command(_run_delete_card(key, card))
+    _run_lock_command(_run_delete_card(key, card))
     typer.echo(f"✓ card {card_id} removed")
 
 
@@ -863,7 +863,7 @@ def clear_cards(
             f"This removes EVERY card from {key.lockAlias or key.lockMac}, not just one. Continue?",
             abort=True,
         )
-    _run_credential_command(_run_clear_cards(key))
+    _run_lock_command(_run_clear_cards(key))
     typer.echo("✓ all cards cleared")
 
 
@@ -876,7 +876,7 @@ def get_cards(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
     key = _resolve_key(target)
-    entries = asyncio.run(_run_get_cards(key))
+    entries = _run_lock_command(_run_get_cards(key))
     if not entries:
         typer.echo("no cards enrolled")
     for entry in entries:
@@ -905,7 +905,7 @@ def get_schedule(
         logging.basicConfig(level=logging.DEBUG)
     credential = _schedule_credential(card, fingerprint)
     key = _resolve_key(target)
-    _echo_windows(asyncio.run(_run_get_schedule(key, credential)))
+    _echo_windows(_run_lock_command(_run_get_schedule(key, credential)))
 
 
 @app.command("set-schedule")
@@ -930,7 +930,7 @@ def set_schedule(
             f"{key.lockAlias or key.lockMac}?",
             abort=True,
         )
-    asyncio.run(_run_set_schedule(key, credential, windows))
+    _run_lock_command(_run_set_schedule(key, credential, windows))
     typer.echo(f"✓ {len(windows)} weekly window(s) set")
 
 
@@ -953,7 +953,7 @@ def clear_schedule(
             f"{key.lockAlias or key.lockMac}?",
             abort=True,
         )
-    asyncio.run(_run_clear_schedule(key, credential))
+    _run_lock_command(_run_clear_schedule(key, credential))
     typer.echo("✓ weekly windows removed")
 
 
@@ -984,7 +984,7 @@ def enroll_fingerprint(
     )
     _validate(lambda: cmd.check_fingerprint_validity(validity))
     key = _resolve_key(target)
-    credential = _run_credential_command(_run_enroll_fingerprint(key, validity, timeout))
+    credential = _run_lock_command(_run_enroll_fingerprint(key, validity, timeout))
     typer.echo(f"✓ fingerprint enrolled: id {credential.identifier.hex()}")
 
 
@@ -1012,7 +1012,7 @@ def modify_fingerprint(
     fingerprint = _fingerprint_credential(fingerprint_id)
     _validate(lambda: cmd.payload_fingerprint_modify(fingerprint.identifier, validity))
     key = _resolve_key(target)
-    _run_credential_command(_run_modify_fingerprint(key, fingerprint, validity))
+    _run_lock_command(_run_modify_fingerprint(key, fingerprint, validity))
     typer.echo(f"✓ fingerprint {fingerprint_id} updated")
 
 
@@ -1033,7 +1033,7 @@ def delete_fingerprint(
             f"Remove fingerprint {fingerprint_id} from {key.lockAlias or key.lockMac}?",
             abort=True,
         )
-    _run_credential_command(_run_delete_fingerprint(key, fingerprint))
+    _run_lock_command(_run_delete_fingerprint(key, fingerprint))
     typer.echo(f"✓ fingerprint {fingerprint_id} removed")
 
 
@@ -1053,7 +1053,7 @@ def clear_fingerprints(
             "not just one. Continue?",
             abort=True,
         )
-    _run_credential_command(_run_clear_fingerprints(key))
+    _run_lock_command(_run_clear_fingerprints(key))
     typer.echo("✓ all fingerprints cleared")
 
 
