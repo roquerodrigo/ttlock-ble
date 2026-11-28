@@ -1,24 +1,25 @@
 {
- "credential": "55156171538441",
+ "credential": "187723558354953",
+ "sanitized": "Fingerprint id replaced consistently with the placeholder aabbcc03 (slot 9 as captured); all other bytes are as captured.",
  "note": "reply_data is the RESPONSE payload after the [0x70][status] envelope",
  "exchanges": [
   {
    "label": "cyclic_baseline",
-   "request": "010106322a0c0300090000000000000000000000",
+   "request": "010106aabbcc0300090000000000000000000000",
    "status": 1,
-   "reply_data": "400100010106322a0c03000901010015121712"
+   "reply_data": "400100010106aabbcc03000901010015121712"
   },
   {
    "label": "cyclic_cursor",
-   "request": "010106322a0c0300090001000000000000000000",
+   "request": "010106aabbcc0300090001000000000000000000",
    "status": 1,
-   "reply_data": "400100020106322a0c03000901040015121712"
+   "reply_data": "400100020106aabbcc03000901040015121712"
   },
   {
    "label": "cyclic_cursor",
-   "request": "010106322a0c0300090002000000000000000000",
+   "request": "010106aabbcc0300090002000000000000000000",
    "status": 1,
-   "reply_data": "400100010106322a0c03000901010015121712"
+   "reply_data": "400100010106aabbcc03000901010015121712"
   }
  ],
  "sanitized": "Card ids replaced consistently with placeholder values (11223344, 55667788) and the lock MAC removed; all other bytes are as captured."

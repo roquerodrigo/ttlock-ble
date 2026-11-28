@@ -1,5 +1,6 @@
 {
- "description": "Decrypted plaintexts from the official TTLock app editing a fingerprint's weekly schedule (Android HCI log, decoded with ttlock_btsnoop_decode.py). Authentication frames omitted. Fingerprint 55156171538441 (id 322a0c03, slot 9) on an SN484_PV53, fw 6.5.15.240522, captured 2026-11-22. The app does not offer switching a scheduled fingerprint to permanent, so removing a schedule entirely was not captured.",
+ "description": "Decrypted plaintexts from the official TTLock app editing a fingerprint's weekly schedule (Android HCI log, decoded with ttlock_btsnoop_decode.py). Authentication frames omitted. Fingerprint 187723558354953 (id aabbcc03, slot 9) on an SN484_PV53, fw 6.5.15.240522, captured 2026-11-22. The app does not offer switching a scheduled fingerprint to permanent, so removing a schedule entirely was not captured.",
+ "sanitized": "Fingerprint id replaced consistently with the placeholder aabbcc03 (slot 9 as captured); all other bytes are as captured.",
  "edits": [
   {
    "change": "Mon+Thu -> Tue+Fri, 21:18-23:18",
@@ -8,7 +9,7 @@
      "direction": "TX",
      "command": "0x06",
      "meaning": "fingerprint validity, sub-op 5: 2026-09-01 01:00 .. 2027-09-02 00:59",
-     "plaintext": "05322a0c0300091a090101001b0902003b"
+     "plaintext": "05aabbcc0300091a090101001b0902003b"
     },
     {
      "direction": "RX",
@@ -19,7 +20,7 @@
      "direction": "TX",
      "command": "0x70",
      "meaning": "CLEAR (op 4) all weekly records of the fingerprint",
-     "plaintext": "040106322a0c030009"
+     "plaintext": "040106aabbcc030009"
     },
     {
      "direction": "RX",
@@ -30,7 +31,7 @@
      "direction": "TX",
      "command": "0x70",
      "meaning": "ADD (op 2) Tue 21:18-23:18",
-     "plaintext": "020106322a0c0300090102001512171200000000"
+     "plaintext": "020106aabbcc0300090102001512171200000000"
     },
     {
      "direction": "RX",
@@ -41,7 +42,7 @@
      "direction": "TX",
      "command": "0x70",
      "meaning": "ADD (op 2) Fri 21:18-23:18",
-     "plaintext": "020106322a0c0300090105001512171200000000"
+     "plaintext": "020106aabbcc0300090105001512171200000000"
     },
     {
      "direction": "RX",
@@ -57,7 +58,7 @@
      "direction": "TX",
      "command": "0x06",
      "meaning": "fingerprint validity, sub-op 5: 2026-09-01 01:00 .. 2027-09-02 00:59",
-     "plaintext": "05322a0c0300091a090101001b0902003b"
+     "plaintext": "05aabbcc0300091a090101001b0902003b"
     },
     {
      "direction": "RX",
@@ -68,7 +69,7 @@
      "direction": "TX",
      "command": "0x70",
      "meaning": "CLEAR (op 4) all weekly records of the fingerprint",
-     "plaintext": "040106322a0c030009"
+     "plaintext": "040106aabbcc030009"
     },
     {
      "direction": "RX",
@@ -79,7 +80,7 @@
      "direction": "TX",
      "command": "0x70",
      "meaning": "ADD (op 2) Tue 21:18-23:18",
-     "plaintext": "020106322a0c0300090102001512171200000000"
+     "plaintext": "020106aabbcc0300090102001512171200000000"
     },
     {
      "direction": "RX",
@@ -90,7 +91,7 @@
      "direction": "TX",
      "command": "0x70",
      "meaning": "ADD (op 2) Fri 21:18-23:18",
-     "plaintext": "020106322a0c0300090105001512171200000000"
+     "plaintext": "020106aabbcc0300090105001512171200000000"
     },
     {
      "direction": "RX",
@@ -101,7 +102,7 @@
      "direction": "TX",
      "command": "0x70",
      "meaning": "ADD (op 2) Sat 21:18-23:18",
-     "plaintext": "020106322a0c0300090106001512171200000000"
+     "plaintext": "020106aabbcc0300090106001512171200000000"
     },
     {
      "direction": "RX",
@@ -117,7 +118,7 @@
      "direction": "TX",
      "command": "0x06",
      "meaning": "fingerprint validity, sub-op 5: 2026-09-01 01:00 .. 2027-09-02 00:59",
-     "plaintext": "05322a0c0300091a090101001b0902003b"
+     "plaintext": "05aabbcc0300091a090101001b0902003b"
     },
     {
      "direction": "RX",
@@ -128,7 +129,7 @@
      "direction": "TX",
      "command": "0x70",
      "meaning": "CLEAR (op 4) all weekly records of the fingerprint",
-     "plaintext": "040106322a0c030009"
+     "plaintext": "040106aabbcc030009"
     },
     {
      "direction": "RX",
@@ -139,7 +140,7 @@
      "direction": "TX",
      "command": "0x70",
      "meaning": "ADD (op 2) Mon 21:18-23:18",
-     "plaintext": "020106322a0c0300090101001512171200000000"
+     "plaintext": "020106aabbcc0300090101001512171200000000"
     },
     {
      "direction": "RX",
@@ -150,7 +151,7 @@
      "direction": "TX",
      "command": "0x70",
      "meaning": "ADD (op 2) Thu 21:18-23:18",
-     "plaintext": "020106322a0c0300090104001512171200000000"
+     "plaintext": "020106aabbcc0300090104001512171200000000"
     },
     {
      "direction": "RX",

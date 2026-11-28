@@ -30,7 +30,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "weekly_schedule"
 FINGERPRINT = ws.CredentialType.FINGERPRINT
 CARD = ws.CredentialType.CARD
 CARD_ID = ws.card_credential_id(0x11223344)
-FINGERPRINT_ID = ws.fingerprint_credential_id(bytes.fromhex("322a0c03"), 9)
+FINGERPRINT_ID = ws.fingerprint_credential_id(bytes.fromhex("aabbcc03"), 9)
 MONDAY_WINDOW = (dt.time(20, 14), dt.time(21, 14))
 
 
@@ -297,7 +297,7 @@ def test_record_rejects_seconds_timezone_and_oversized_bytes() -> None:
 
 
 def test_credential_id_helpers() -> None:
-    assert bytes.fromhex("322a0c030009") == FINGERPRINT_ID
+    assert bytes.fromhex("aabbcc030009") == FINGERPRINT_ID
     assert ws.card_credential_id(0x11223344) == bytes.fromhex("11223344")
     assert ws.card_credential_id(0) == bytes(4)
     assert ws.card_credential_id(0xFFFFFFFF) == b"\xff" * 4
